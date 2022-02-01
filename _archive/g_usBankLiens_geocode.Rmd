@@ -1,0 +1,36 @@
+---
+title: "GeocodingUSBankLien"
+author: "Gillian"
+date: "1/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(tidygeocoder)
+```
+
+## Read in data
+```{r}
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum")
+dat <- read.csv("USBankLien.csv") 
+```
+
+## join address
+```{r}
+dat <- dat %>%
+  mutate(addr = paste(property_address, CITY, ST))
+
+dat <- dat %>%
+  geocode(addr, method = 'osm', lat = lat , long = long) 
+
+latlon_na<- dat %>%
+  filter(is.na(dat$lat)==TRUE)
+```
+
+```{r}
+write.csv(latlon_na, "usBankLiens_latlonNA.csv")
+write.csv(dat, "usBankLiens_latlon.csv")
+```
+
