@@ -1,5 +1,5 @@
 ---
-title: "PLA_01"
+title: "Philadelphia Legal Assistance: Adverse Possession"
 author: "Adrian Leon, Max Masuda-Farkas, Gillian Xuezhu Zhao"
 date: "28/01/2022"
 output:
@@ -12,7 +12,7 @@ output:
 
 # Philadelphia Legal Assistance
 
-
+## Smart Cities Practicum
 
 ```{r setup, include=FALSE}
 
@@ -58,6 +58,8 @@ st_c <- st_coordinates
 
 ### Supply-side data
 
+#### S1: US Bank Liens
+
 ```{r supply-side data}
 
 # Client-provided US Bank Liens Data (as 'US Bank sharp')
@@ -72,7 +74,7 @@ usBankLiens_1 <- read.csv("./data/usBankLiens_latlon.csv") %>%
   rename(lon = 'long') %>%
   filter(!is.na(lat), !is.na(lon)) %>% 
   st_as_sf(coords = c("lon","lat"), crs = 4269) %>%
-  filter(X != 16)
+  filter(X != 16)                                                # TAKE out Mississippi geocode error
 
 
 m(usBankLiens_1, zcol='CALC_TOTAL')
@@ -80,15 +82,13 @@ m(usBankLiens_1, zcol='CALC_TOTAL')
 
 # Properties with NAs
 usBankLiens_NA <- read.csv("./data/usBankLiens_latlonNA.csv") %>%
-  rename(lon = 'long') # %>%
-  #filter(!is.na(lat), !is.na(lon)) %>% 
-  # st_as_sf(coords = c("lon","lat"), crs = 4269)
+  rename(lon = 'long')
   
 
 ```
 
 
-#### Vacant lots
+#### S2: Vacant lots
 
 
 ```{r supply vacant land}
@@ -100,12 +100,31 @@ vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0
 ```
 
 
+#### S3: Real Estate Tax Delinquencies
+
+```{r supply tax delinquencies}
+
+taxDelinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
+
+
+```
+
+
+
 
 #### Parcels dataset
 
 ```{r supply all parcels}
 
-parcels <- read_csv('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3fb29d3cafd_0.csv')
+# GET directly from the WEB
+## AS GeoJSON st_read('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3fb29d3cafd_0.geojson')
+
+
+# Philadelphia Department of Registration Parcel data
+parcels <- st_read("C:/Users/golet/UPENN/MUSA_801/data/DOR_Parcel/DOR_Parcel.shp")
+
+z <- head(parcels, n=1000)
+m(z)
 
 ```
 
@@ -115,13 +134,12 @@ parcels <- read_csv('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3
 
 ### Demand-side data
 
-#### OpenDataPhilly L&I Building and Zoning Permits
-
+#### D1: L&I Building and Zoning Permits
 
 ```{r demand data permits}
 
 # Load PERMITS data from OpenDataPhilly's Carto API
-permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
+permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
 
 # objectid                  UNNECESSARY
 # permitnumber              UNNECESSARY
@@ -174,9 +192,9 @@ permitCats <-
     #'BP_DEMO',               #    6259
     #'BP_FIRESUP',            #    9553
     #'BP_MECH',               #   18747
-    'BP_NEWCNST',             #    4984
+    'BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
     #'BP_SIGN',               #    1546
-    'BUILDING',               #    8521
+    'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
     #'DEMOLITION',            #    1704
     #'ELECTRICAL',            #   22321
     #'EP_ELECTRL',            #   36433
@@ -190,26 +208,41 @@ permitCats <-
     #'PLUMBING',              #   31451
     #'PP_PLUMBNG',            #   52541
     #'PRELIMINARY APPROVAL',  #      27
-    'RESIDENTIAL BUILDING',   #   15909
+    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
     #'SITE / UTILITY PERMIT', #     415
-    'ZONING',                 #   11187
+    'ZONING',                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
     #'ZP_ADMIN',              #     803
-    'ZP_USE',                 #    9651
-    'ZP_ZON/USE',             #   12921
-    'ZP_ZONING')              #    7617 
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING'               #    7617   # "2007-01-02" to "2020-03-12"
+    )
+
+permitCats <- 
+  c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING')              #    7617   # "2007-01-02" to "2020-03-12"
+
+permitCats <- 
+  c('BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+    'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
+
 
 
 # type of work across categories:
-
 permitTypes <- as.data.frame(table(permits$typeofwork))
+
 
 # Filter data with PERMIT TYPES (building or zoning)
 permitsData <- permits %>%
   select(varsPermits) %>%
+  filter(permitissuedate > as.Date.character('2017-01-01')) %>% # SET start date
   filter(permittype %in% permitCats) %>%
-  #filter(., grepl("NEW CONSTRUCTION", typeofwork)) %>%
+  # filter(., grepl("NEW CONSTRUCTION", typeofwork)) %>%
   filter(!is.na(lat), !is.na(lng)) %>% 
-  st_as_sf(coords = c("lng","lat"), crs = 4269)
+  st_as_sf(coords = c("lng","lat"), crs = 4269) 
+
 
 table(permitsData$typeofwork)
 
@@ -232,11 +265,39 @@ m(permitsData, zcol='permittype')
 
 
 
+#### D2: Property Assessment History
+
+Last five years of property assessment history (merge with parcel data).
+
+```{r demand property assessment}
+
+# OpenDataPhilly Endpoint of Property Assessment History:
+
+propAssessment <- read_csv('https://opendata-downloads.s3.amazonaws.com/assessments.csv')
+
+```
+
+
+
+
+
+### ACS Data
+
+```{r ACS data}
+
+
+
+
+```
+
+
+
+### Other Data
 
 ```{r demand data violations}
 
 # Load VIOLATIONS data from OpenDataPhilly's Carto API
-violations <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*FROM+violations&filename=violations&format=csv&skipfields=cartodb_id')
+violations <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+violations&filename=violations&format=csv&skipfields=cartodb_id')
 
 
 ```
