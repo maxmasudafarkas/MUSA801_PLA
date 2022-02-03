@@ -63,6 +63,7 @@ st_c <- st_coordinates
 ```{r supply-side data}
 
 # Client-provided US Bank Liens Data (as 'US Bank sharp')
+# These are Liens that have been sold - UPDATE?
 usBankLiens_0 <- read.csv("./data/usBank.csv") %>%
   dplyr::select(-X) %>%
   na.omit() %>%
@@ -73,17 +74,18 @@ usBankLiens_0 <- read.csv("./data/usBank.csv") %>%
 usBankLiens_1 <- read.csv("./data/usBankLiens_latlon.csv") %>%
   rename(lon = 'long') %>%
   filter(!is.na(lat), !is.na(lon)) %>% 
-  st_as_sf(coords = c("lon","lat"), crs = 4269) %>%
+  st_as_sf(coords = c("lon","lat"), crs = 4269)  %>%
   filter(X != 16)                                                # TAKE out Mississippi geocode error
 
 
-m(usBankLiens_1, zcol='CALC_TOTAL')
-
-
-# Properties with NAs
+# US Bank Liens pending geocoding (with NAs):
 usBankLiens_NA <- read.csv("./data/usBankLiens_latlonNA.csv") %>%
   rename(lon = 'long')
-  
+
+
+# visualize liens locations
+m(usBankLiens_1, zcol='CALC_TOTAL')
+
 
 ```
 
@@ -104,10 +106,88 @@ vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0
 
 ```{r supply tax delinquencies}
 
-taxDelinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
+# Real Estate Delinquencies from OpenData Philly:
 
+delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
+
+
+# Variables - Tax Delinquencies (53 vars)
+
+delinquenciesVars <-
+  c("objectid",                       # UNNECESSARY
+    "opa_number",                     # KEEP ***to join***
+    "street_address",                 # UNNECESSARY
+    "zip_code",                       # UNNECESSARY
+    "zip_4",                          # UNNECESSARY
+    "unit_type",                      # UNNECESSARY
+    "unit_num",                       # UNNECESSARY
+    "owner",                          # KEEP for reference
+    "co_owner",                       # KEEP for reference
+    "principal_due",                  # ???? ------------------------------------The amount of principal due.
+    "penalty_due",                    # ???? ------------------------------------The penalty amount due.
+    "interest_due",                   # ???? ------------------------------------The amount of interest due.
+    "other_charges_due",              # ???? ------------------------------------Additional charges owner owes.
+    "total_due",                      # KEEP ------------------------------------The total amount owner owes.
+    "is_actionable",                  # ???? ------------------------------------Action can be taken against the delinquent property.
+    "payment_agreement",              # ???? ------------------------------------The property owner is in a payment agreement.
+    "num_years_owed",                 # KEEP ***for adverse possession reference
+    "most_recent_year_owed",          # KEEP for reference
+    "oldest_year_owed",               # KEEP for reference
+    "most_recent_payment_date",       # KEEP for reference
+    "year_of_last_assessment",        # KEEP for reference
+    "total_assessment",               # KEEP for reference
+    "taxable_assessment",             # KEEP for reference
+    "mailing_address",                # UNNECESSARY
+    "mailing_city",                   # UNNECESSARY
+    "mailing_state",                  # UNNECESSARY
+    "mailing_zip",                    # UNNECESSARY
+    "return_mail",                    # UNNECESSARY
+    "building_code",                  # ???? ------------------------------------Building codes describe the building.
+    "detail_building_description",    # ???? ------------------------------------Description of the building code.
+    "general_building_description",   # ???? ------------------------------------General description of how the building is used.
+    "building_category",              # ???? ------------------------------------Type of Building Group (residential, commercial, etc.).
+    "coll_agency_num_years",          # ???? ------------------------------------TO COLLECTION AGENCY
+    "coll_agency_most_recent_year",   # ???? ------------------------------------TO COLLECTION AGENCY
+    "coll_agency_oldest_year",        # ???? ------------------------------------TO COLLECTION AGENCY
+    "coll_agency_principal_owed",     # ???? ------------------------------------TO COLLECTION AGENCY
+    "coll_agency_total_owed",         # ???? ------------------------------------TO COLLECTION AGENCY
+    "exempt_abatement_assessment",    # UNNECESSARY -----------------------------The amount excluded from the tax base.
+    "homestead_value",                # UNNECESSARY -----------------------------Amount of Homestead Exemption.
+    "net_tax_value_after_homestead",  # ???? ------------------------------------The net tax value after the homestead exemption.
+    "agreement_agency",               # ????
+    "sequestration_enforcement",      # ???? If the delinquent property is a rental he City can collect and apply payments to Tax bill
+    "bankruptcy",                     # ???? ------------------------------------Active bankruptcy
+    "years_in_bankruptcy",            # ???? 
+    "most_recent_bankrupt_year",      # ????
+    "oldest_bankrupt_year",           # ????
+    "principal_sum_bankrupt_years",   # ????
+    "total_amount_bankrupt_years",    # ????
+    "sheriff_sale",                   # KEEP*** ---------------------------------Property is in the Sheriff Sale Process (any stage).
+    "liens_sold_1990s",               # KEEP*** ---------------------------------Property was included in 1997 Lien Sale.
+    "liens_sold_2015",                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
+    "assessment_under_appeal",        # UNNECESSARY -----------------------------the owner has appealed the assessment.
+    "year_month")                     # ???? >>>> Unlisted in metadata
+
+
+table(taxDelinquencies$liens_sold_1990s)
+table(taxDelinquencies$liens_sold_2015)
+
+
+z <- taxDelinquencies %>%
+  filter(opa_number == '311177800')
+
+head(delinquencies)
 
 ```
+
+
+
+
+
+
+
+
+
 
 
 
@@ -123,8 +203,13 @@ taxDelinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+r
 # Philadelphia Department of Registration Parcel data
 parcels <- st_read("C:/Users/golet/UPENN/MUSA_801/data/DOR_Parcel/DOR_Parcel.shp")
 
-z <- head(parcels, n=1000)
+# visualize  
+z <- head(parcels, n=10000)
 m(z)
+
+properties <- read_csv('https://opendata-downloads.s3.amazonaws.com/opa_properties_public.csv')
+
+
 
 ```
 
@@ -224,8 +309,8 @@ permitCats <-
     'ZP_ZONING')              #    7617   # "2007-01-02" to "2020-03-12"
 
 permitCats <- 
-  c('BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
-    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+  c(#'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    #'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
     'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
 
 
@@ -265,15 +350,76 @@ m(permitsData, zcol='permittype')
 
 
 
-#### D2: Property Assessment History
+#### D2: Real Estate Transfers
 
-Last five years of property assessment history (merge with parcel data).
+Real Estate Transfers Tax Documents
+
+Dataset description:
+
+"Description	This is a summary of real estate transfer tax (RTT) documents. This table contains both raw source data as well as calculated/geocoded data, which are described below. Each row represents a distinct property involved in a RTT transaction document; all properties involved in a transaction share the same document_id. Please note that 918 transactions have been temporarily omitted while we address data integration issues with these records."
+
 
 ```{r demand property assessment}
 
 # OpenDataPhilly Endpoint of Property Assessment History:
 
-propAssessment <- read_csv('https://opendata-downloads.s3.amazonaws.com/assessments.csv')
+transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
+
+
+# OpenDataPhilly - Transfers (48 variables)
+
+transfersVars <- 
+  c("objectid",                     # UNNECESSARY
+    "document_id",                  # ????
+    "document_type",                # ????
+    "display_date",                 # KEEP***
+    "street_address",               # UNNECESSARY
+    "zip_code",                     # UNNECESSARY
+    "ward",                         # UNNECESSARY
+    "grantors",                     # ????
+    "grantees",                     # ????
+    "cash_consideration",           # ????
+    "other_consideration",          # ????
+    "total_consideration",          # ????
+    "assessed_value",               # ????
+    "common_level_ratio",           # ????
+    "fair_market_value",            # KEEP
+    "state_tax_amount",             # UNNECESSARY
+    "state_tax_percent",            # UNNECESSARY
+    "local_tax_amount",             # UNNECESSARY
+    "local_tax_percent",            # UNNECESSARY
+    "adjusted_cash_consideration",  # ????
+    "adjusted_other_consideration", # ????
+    "adjusted_total_consideration", # ????
+    "adjusted_assessed_value",      # ????
+    "adjusted_fair_market_value",   # ????
+    "adjusted_state_tax_amount",    # UNNECESSARY
+    "adjusted_local_tax_amount",    # UNNECESSARY
+    "receipt_num",                  # UNNECESSARY
+    "receipt_date",                 # UNNECESSARY - display_date is used
+    "recording_date",               # UNNECESSARY - display_date is used
+    "document_date",                # UNNECESSARY - display_date is used
+    "condo_name",                   # UNNECESSARY
+    "unit_num",                     # UNNECESSARY
+    "address_low",                  # UNNECESSARY
+    "address_low_suffix",           # UNNECESSARY
+    "address_low_frac",             # UNNECESSARY
+    "address_high",                 # UNNECESSARY
+    "street_predir",                # UNNECESSARY
+    "street_name",                  # UNNECESSARY
+    "street_suffix",                # UNNECESSARY
+    "street_postdir",               # UNNECESSARY
+    "reg_map_id",                   # ????
+    "matched_regmap",               # ????
+    "opa_account_num",              # KEEP****to join
+    "legal_remarks",                # ????
+    "discrepancy",                  # ????
+    "property_count",               # ????
+    "lat",                          # KEEP
+    "lng")                          # KEEP
+
+
+
 
 ```
 
