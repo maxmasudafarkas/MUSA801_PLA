@@ -1,4 +1,6 @@
-# MUSA801_PLA
+# Safeguarding Vacant Lots
+
+## Introduction
 
 When life hands you a vacant lot, make a garden. 
 
