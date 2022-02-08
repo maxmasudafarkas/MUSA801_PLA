@@ -265,6 +265,12 @@ propertiesData <- properties %>%
   dplyr::select(propertiesVars) %>%
   rename("address" = location)
 
+
+
+unique(propertiesData$unfinished)
+
+
+
 ```
 
 
@@ -317,7 +323,7 @@ parcelsVars <-
     #"OPA_REVIEW",                       # UNNECESSARY
     #"PWD_REVIEW",                       # UNNECESSARY
     "Shape__Area",                      # KEEP
-    "Shape__Length",                    # KEEP
+    #"Shape__Length",                    # KEEP
     "geometry")                         # KEEP
 
 
@@ -396,10 +402,10 @@ varsPermits <-
     #'addressobjectid',               # UNNECESSARY
     'parcel_id_num',                 # KEEP for referencing parcels
     'permittype',                    # KEEP*****
-    #'permitdescription',             # UNNECESSARY
+    'permitdescription',             # KEEP for reference
     'commercialorresidential',        # MAYBE
     'typeofwork',                    # KEEP****
-    #'approvedscopeofwork',           # UNNECESSARY
+    'approvedscopeofwork',           # UNNECESSARY
     'permitissuedate',               # KEEP***
     'status',                        # KEEP
     'applicanttype',                 # MAYBE
@@ -412,14 +418,19 @@ varsPermits <-
     #'zip',                           # UNNECESSARY
     #'censustract',                   # UNNECESSARY
     #'council_district',              # UNNECESSARY
-    'opa_owner',                     # KEEP- ------------------------------------OPA's ownership from the current deed for the property.
+    #'opa_owner',                     # REPETITIVE ------------------------------OPA's ownership from the current deed for the property.
     #'systemofrecord',                # UNNECESSARY
     #'posse_jobid',                   # UNNECESSARY
     'lng',
     'lat')
 
+# EXAMINE VARIABLES
 
-# permittype categories:
+# permittype
+permitTypes <- as.data.frame(table(permits$permittype))
+
+# select permittyoe
+# All categories
 permitCats <- 
   c(#'ADMINISTRATIVE',        #    2030
     #'BP_ADDITON',            #    1781
@@ -447,43 +458,125 @@ permitCats <-
     'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
     #'SITE / UTILITY PERMIT', #     415
     'ZONING',                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
-    #'ZP_ADMIN',              #     803
+    'ZP_ADMIN',              #     803
     'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
     'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
     'ZP_ZONING'               #    7617   # "2007-01-02" to "2020-03-12"
     )
 
-permitCats <- 
+# Old categories
+permitCatsA <- 
   c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'ZP_ADMIN',               #     803
     'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
     'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
     'ZP_ZONING')              #    7617   # "2007-01-02" to "2020-03-12"
 
-permitCats <- 
-  c(#'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
-    #'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+# New categories
+permitCatsB <- 
+  c('BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
     'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
 
 
+# Building categories
+permitBuildingCats <- 
+  c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING')   #   15909   # "2015-01-06" to NOW ("2022-01-29")
 
-# Data wrangling
-# type of work across categories:
-permitTypes <- as.data.frame(table(permits$typeofwork))
+# Zoning categories
+permitZoningCats <- 
+  c('ZP_ADMIN',               #     803
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING',              #    7617   # "2007-01-02" to "2020-03-12"
+    'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
 
 
+# Data wrangling ONE
 # Filter data with PERMIT TYPES (building or zoning)
 permitsData <- permits %>%
   dplyr::select(varsPermits) %>%
   filter(permitissuedate > initialDate) %>% # SET start date
   filter(permittype %in% permitCats) %>%
-  # filter(., grepl("NEW CONSTRUCTION", typeofwork)) %>%
   filter(!is.na(lat), !is.na(lng)) %>% 
   st_as_sf(coords = c("lng","lat"), crs = 4269) 
 
 
-table(permitsData$typeofwork)
-table(permitsData$permittype)
+# type of work across SELECTED categories (48):
+permitTypesOfWork <- as.data.frame(table(permitsData$typeofwork)) 
 
+# All categories
+permitTypeOfWorkCats <- 
+  c(#'ADD',                                              #   1665 ***OLD ***ZONING {New construction attached or added to existing}
+    #'ADDITION AND/OR ALTERATION',                       #  17051 ***NEW ***BUILDING (6290)  ***RESIDENTIAL BUILDING (10761)
+    #'ALTER',                                            #      1 ***OLD ***ZONING
+    #'AMEND',                                            #    162 ***OLD ***ZONING {Admin stuff}
+    'CHANGE OF USE',                                    #   3046 ***NEW ***ZONING {General change of use}
+    'COMBINED LOT LINE RELOCATION AND NEW DEVELOPMENT', #    313 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    'COMDEM',                                           #   1163 ***OLD ***ZONING {Complete demolition}
+    #'CONDITIONAL ZONING APPROVAL',                      #     30 ***NEW ***ZONING
+    #'CONR',                                             #      1 ***OLD ***ZONING
+    #'COVID-19 TEMP USE (RESTAURANTS / RETAIL)',         #     71 ***NEW ***ZONING
+    #'ENTIR',                                            #      3 ***OLD ***ZONING (-1)    ***BUILDING
+    'ENTIRE',                                           #   2910 ***OLD ***ZONING (-2890) ***BUILDING {Entire structure}
+    'ENTSTR',                                           #   3638 ***OLD ***ZONING
+    #'FAMDAY',                                           #    268 ***OLD ***ZONING
+    #'FAMILY DAYCARE',                                   #     65 ***NEW ***ZONING
+    #'FENCE',                                            #     40 ***OLD ***ZONING
+    #'FENCES ONLY',                                      #     26 ***NEW ***ZONING
+    #'FITOUT',                                           #     91 ***OLD ***BUILDING {Commercial interiors}
+    'FOUND',                                            #    168 ***OLD ***BUILDING {Just foundations}
+    'FRAME',                                            #      1 ***OLD ***BUILDING
+    'FULL DEMOLITION',                                  #    644 ***NEW ***ZONING {Full demolition}
+    'LOT LINE RELOCATION',                              #    317 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    'LOTLIN',                                           #   2527 ***OLD ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    #'MAJOR',                                            #      4 ***OLD ***ZONING (-3) ***BUILDING
+    'MOD/IN',                                           #     17 ***OLD ***BUILDING {Modular structure}
+    'NEW CONSTRUCTION',                                 #<- 6292 ***NEW ***BUILDING (1812) ***RESIDENTIAL BUILDING (4480)
+    'NEW CONSTRUCTION (SHELL ONLY)',                    #<-   19 ***NEW ***BUILDING
+    #'NEW CONSTRUCTION (STAND ALONE)',                   #<-   48 ***NEW ***RESIDENTIAL BUILDING
+    'NEW CONSTRUCTION, ADDITION, GFA CHANGE',           #<- 4986 ***NEW ***ZONING {New construction attached or added to existing}
+    'NEWCON',                                           #<- 5539 ***OLD ***ZONING (-3) ***BUILDING {New construction of structure}
+    #'PARKING ONLY',                                     #<-   97 ***NEW ***ZONING
+    #'PARTBL',                                           #    116 ***OLD ***ZONING {Partial demolitions}
+    'PARTCH',                                           #   3317 ***OLD ***ZONING {Change in use}
+    #'PARTIA',                                           #      4 ***OLD ***ZONING {Partial or complete demolitions}
+    #'PARTSI',                                           #     36 ***OLD ***ZONING {Partial or complete demolitions}
+    #'PRELIM',                                           #      6 ***OLD ***ZONING {Preliminary study}
+    #'PREPL',                                            #      1
+    #'SFADD',                                            #   3149 ***OLD ***ZONING {Add square footage to existing}
+    #'SFRED',                                            #    253 ***OLD ***ZONING {Reduce square footage to existing}
+    'SHELL',                                            #      9 ***OLD ***BUILDING
+    #'SIGNAC',                                           #   1584 ***OLD ***ZONING
+    #'SIGNE',                                            #     19 ***OLD ***ZONING
+    #'SIGNNA',                                           #     18 ***OLD ***ZONING
+    #'SIGNS (ACCESSORY / NON-ACCESSORY)',                #    872 ***NEW ***ZONING
+    'SITE'#,                                             #     29 ***OLD ***BUILDING
+    #'TANK',                                             #     27 ***OLD ***ZONING (-26) ***BUILDING
+    #'TANKRI',                                           #      1 ***OLD ***BUILDING
+    #'ZBAADM'                                            #    332 ***OLD ***ZONING {Admin stuff}
+    )
+    
+
+# Data wrangling TWO
+# Filter data with PERMIT TYPES (building or zoning)
+
+# Get ZONING permits
+permitsZoningData <- permitsData %>%
+  filter(permittype %in% permitZoningCats) %>%
+  filter(typeofwork %in% permitTypeOfWorkCats)
+
+as.data.frame(table(permitsZoningData$typeofwork)) 
+
+
+# Get ZONING permits
+permitsBuildingData <- permitsData %>%
+  filter(permittype %in% permitBuildingCats) %>%
+  filter(typeofwork %in% permitTypeOfWorkCats)
+
+as.data.frame(table(permitsBuildingData$typeofwork)) 
 
 # quick map plot
 # m(permitsData, zcol='permittype')
@@ -549,14 +642,14 @@ transfersVars <-
     #"street_name",                  # UNNECESSARY
     #"street_suffix",                # UNNECESSARY
     #"street_postdir",               # UNNECESSARY
-    "reg_map_id",                   # KEEP*** to join ---------------------------DOR parcel ID sourced from CRIS_Properties.
-    "matched_regmap",               # KEEP? -------------------------------------DOR parcel ID matched to the address by the geocoder.
+    #"reg_map_id",                   # UNNECESSARY ------------------------------DOR parcel ID sourced from CRIS_Properties.
+    #"matched_regmap",               # UNNECESSARY ------------------------------DOR parcel ID matched to the address by the geocoder.
     "opa_account_num",              # KEEP****to join
     #"legal_remarks",                # UNNECESSARY
     #"discrepancy",                  # UNNECESSARY
-    "property_count",               # KEEP --------------------------------------Number of properties in document
-    "lat",                          # KEEP
-    "lng")                          # KEEP
+    "property_count")               # KEEP --------------------------------------Number of properties in document
+    #"lat",                          # KEEP
+    #"lng")                          # KEEP
 
 
 # Data wrangling
@@ -646,7 +739,7 @@ len(unique(violations$violationcodetitle))
 
 
 
-
+#### JOIN tests
 
 ```{r join datasets A}
 
