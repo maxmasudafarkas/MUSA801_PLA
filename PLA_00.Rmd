@@ -90,18 +90,7 @@ m(usBankLiens_1, zcol='CALC_TOTAL')
 ```
 
 
-#### S2: Vacant lots
 
-
-```{r supply vacant land}
-
-# OpenDataPhilly Vacant Property Indicator - Lots
-vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0032b58268c9f9_0.csv')
-
-g(vacantLand)
-
-
-```
 
 
 #### S3: Real Estate Tax Delinquencies
@@ -115,8 +104,8 @@ delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real
 # Variables - Tax Delinquencies (53 vars)
 delinquenciesVars <-
   c(#"objectid",                       # UNNECESSARY
-    "opa_number",                     # KEEP ***to join***
-    #"street_address",                 # UNNECESSARY
+    "opa_number",                     # KEEP to JOIN****
+    "street_address",                 # KEEP to JOIN check****
     #"zip_code",                       # UNNECESSARY
     #"zip_4",                          # UNNECESSARY
     #"unit_type",                      # UNNECESSARY
@@ -169,43 +158,20 @@ delinquenciesVars <-
     "year_month")                     # year$month >>>> Unlisted in metadata
 
 
-
+# Data wrangling
 delinquenciesData <- delinquencies %>%
-  dplyr::select(delinquenciesVars)
-
-
-
-head(z)
-
-```
-
-
-
-
-
-
-#### P1: Parcels dataset
-
-```{r supply all parcels}
-
-# GET directly from the WEB
-## AS GeoJSON st_read('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3fb29d3cafd_0.geojson')
-
-
-# Philadelphia Department of Registration Parcel data
-parcels <- st_read("C:/Users/golet/UPENN/MUSA_801/data/DOR_Parcel/DOR_Parcel.shp")
-
-# visualize  
-z <- head(parcels, n=10000)
-m(z)
-
-
+  dplyr::select(delinquenciesVars) %>%
+  rename("address" = street_address)
 
 
 
 ```
 
-### P2: Properties dataset
+
+
+
+
+### P1: Properties dataset
 
 ```{r supply all properties description}
 
@@ -243,7 +209,7 @@ propertiesVars <-
     #"house_extension",                # UNNECESSARY
     #"house_number",                   # UNNECESSARY
     #"interior_condition",             # UNNECESSARY
-    #"location",                       # UNNECESSARY
+    "location",                       # KEEP for JOIN check****
     #"mailing_address_1",              # UNNECESSARY
     #"mailing_address_2",              # UNNECESSARY
     #"mailing_care_of",                # UNNECESSARY
@@ -260,7 +226,7 @@ propertiesVars <-
     #"other_building",                 # UNNECESSARY
     "owner_1",                        # KEEP?
     "owner_2",                        # KEEP?
-    "parcel_number",                  # KEEP***
+    "parcel_number",                  # KEEP to JOIN***
     #"parcel_shape",                   # UNNECESSARY
     #"quality_grade",                  # UNNECESSARY
     "recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
@@ -290,15 +256,79 @@ propertiesVars <-
     #"year_built_estimate",            # UNNECESSARY
     #"zip_code",                       # UNNECESSARY
     "zoning",                         # KEEP
-    "pin",                            # KEEP?
+    "pin",                            # KEEP to JOIN ****
     "lat",                            # KEEP****
     "lng")                            # KEEP****
 
-# Wrangle the data
+# Data wrangling
 propertiesData <- properties %>%
-  dplyr::select(propertiesVars)
+  dplyr::select(propertiesVars) %>%
+  rename("address" = location)
+
+```
 
 
+
+#### P2: Parcels dataset
+
+```{r supply all parcels}
+
+# Philadelphia Department of Registration Parcel data (41 variable
+parcels <- st_read('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3fb29d3cafd_0.geojson')
+
+# Select useful variables
+parcelsVars <- 
+  c(#"OBJECTID",                         # UNNECESSARY
+    #"RECSUB",                           # UNNECESSARY
+    #"BASEREG",                          # REPEATED -----------------------------The registry number which there is a deed attached to.
+    #"MAPREG",                           # UNNECESSARY
+    #"PARCEL",                           # UNNECESSARY
+    #"RECMAP",                           # UNNECESSARY
+    #"STCOD",                            # UNNECESSARY
+    #"HOUSE",                            # UNNECESSARY
+    #"SUF",                              # UNNECESSARY
+    #"UNIT",                             # UNNECESSARY
+    #"STEX",                             # UNNECESSARY
+    #"STDIR",                            # UNNECESSARY
+    #"STNAM",                            # UNNECESSARY
+    #"STDESSUF",                         # UNNECESSARY
+    #"ELEV_FLAG",                        # UNNECESSARY
+    #"TOPELEV",                          # UNNECESSARY
+    #"BOTELEV",                          # UNNECESSARY
+    #"CONDOFLAG",                        # UNNECESSARY
+    #"MATCHFLAG",                        # UNNECESSARY
+    #"INACTDATE",                        # UNNECESSARY
+    "ORIG_DATE",                        # ???? ----------------------------------Date of origination
+    "STATUS",                           # ????
+    #"GEOID",                            # UNNECESSARY
+    #"STDES",                            # UNNECESSARY
+    #"ADDR_SOURCE",                      # UNNECESSARY
+    "ADDR_STD",                         # KEEP for JOIN check****
+    #"COMMENTS",                         # UNNECESSARY
+    "PIN",                              # KEEP ----------------------------------Unique parcel identifier
+    #"FRAC",                             # UNNECESSARY
+    #"UNIT_TYPE",                        # UNNECESSARY
+    #"STEX_FRAC",                        # UNNECESSARY
+    #"STEX_SUF",                         # UNNECESSARY
+    #"SEPARATED_RIGHTS",                 # UNNECESSARY ---------------------------Air Rights, Sub Rights, Mixed Rights, Parking, Garage
+    #"MUNIMENT_TYPE",                    # UNNECESSARY
+    #"MUNIMENT_ID",                      # UNNECESSARY
+    #"DOR_REVIEW",                       # UNNECESSARY
+    #"OPA_REVIEW",                       # UNNECESSARY
+    #"PWD_REVIEW",                       # UNNECESSARY
+    "Shape__Area",                      # KEEP
+    "Shape__Length",                    # KEEP
+    "geometry")                         # KEEP
+
+
+# Data wrangling
+parcelsData <- parcels %>%
+  dplyr::select(parcelsVars) %>%
+  rename("address" = ADDR_STD)
+
+# visualize  
+# z <- head(parcelsData, n=10000)
+# m(z)
 
 
 ```
@@ -306,6 +336,40 @@ propertiesData <- properties %>%
 
 
 
+#### P3: Vacant lots
+
+
+From metadata:  "Input characteristics of the model are determined to be either positive or negative indicators of vacancy. A positive indicator has a tendency to signify vacancy (e.g., code violation issued by L+I). A negative indicator has a tendency to signify occupancy (e.g., OPA occupied property code). Individual indicators are weighted based on age of observation/record or other factors as determined by city department subject matter experts for a contributing dataset. Each indicator is also determined to represent a vacant lot or vacant building, as documented in the contributing dataset."
+
+
+```{r supply vacant land}
+
+# OpenDataPhilly Vacant Property Indicator - Lots
+vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0032b58268c9f9_0.csv')
+
+# Select useful variables --- NO GEOMETRY
+vacantLandVars <-
+  c(#"OBJECTID",                       # UNNECESSARY
+    "ADDRESS",                        # KEEP for JOIN CHECK
+    #"OWNER1",                         # REPEATED (in Properties)
+    #"OWNER2",                         # REPEATED (in Properties)
+    "BLDG_DESC",                      # ???? ------------------------------------Building description from OPA
+    "OPA_ID",                         # KEEP to JOIN****
+    #"LNIADDRESSKEY",                  # UNNECESSARY-----------------------------Unique identifier from Licenses + Inspections
+    #"COUNCILDISTRICT",                # UNNECESSARY
+    "ZONINGBASEDISTRICT",             # KEEP***
+    #"ZIPCODE",                        # UNNECESSARY
+    "LAND_RANK")                      # KEEP?
+    #"Shape__Area"                    # KEEP?
+    #"Shape__Length")                  # UNNECESSARY
+
+# Data wrangling
+vacantLandData <- vacantLand %>%
+  dplyr::select(vacantLandVars) %>%
+  rename("address" = ADDRESS) %>%
+  mutate(vacant = 'vacant')
+
+```
 
 
 
@@ -316,50 +380,44 @@ propertiesData <- properties %>%
 
 ```{r demand data permits}
 
+### DEMAND SIDE DATA
+
+initialDate <- as.Date.character('2017-01-01')
+
+
 # Load PERMITS data from OpenDataPhilly's Carto API
 permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
 
-# objectid                  UNNECESSARY
-# permitnumber              UNNECESSARY
-# addressobjectid           UNNECESSARY
-# parcel_id_num             KEEP for referencing parcels
-# permittype                MAYBE
-# permitdescription         UNNECESSARY
-# commercialorresidential   filter just RESIDENTIAL properties?
-# typeofwork                MAYBE
-# approvedscopeofwork       UNNECESSARY
-# permitissuedate           *KEEP
-# status                    KEEP
-# applicanttype             MAYBE
-# contractor[...]           UNNECESSARY
-# mostrecentinsp            UNNECESSARY
-# opa_account_num           UNNECESSARY
-# address                   KEEP
-# unit_type                 MAYBE
-# unit_num                  MAYBE keep and match with address?
-# zip                       UNNECESSARY
-# censustract               UNNECESSARY
-# council_district          UNNECESSARY
-# opa_owner                 Office of Property Assessment's ownership from the current deed for the property.
-# systemofrecord            UNNECESSARY
-# posse_jobid               UNNECESSARY
 
-
-# List the permit dataset variables needed
+# List the permit data set variables needed
 varsPermits <-
-  c('parcel_id_num',
-    'permittype',
-    'commercialorresidential',
-    'typeofwork',
-    'permitissuedate',
-    'status',
-    'applicanttype',
-    'address',
-    'unit_type',
-    'unit_num',
-    'opa_owner',
+  c(#'objectid',                      # UNNECESSARY
+    #'permitnumber',                  # UNNECESSARY
+    #'addressobjectid',               # UNNECESSARY
+    'parcel_id_num',                 # KEEP for referencing parcels
+    'permittype',                    # KEEP*****
+    #'permitdescription',             # UNNECESSARY
+    'commercialorresidential',        # MAYBE
+    'typeofwork',                    # KEEP****
+    #'approvedscopeofwork',           # UNNECESSARY
+    'permitissuedate',               # KEEP***
+    'status',                        # KEEP
+    'applicanttype',                 # MAYBE
+    #'contractor[...]',               # UNNECESSARY
+    #'mostrecentinsp',                # UNNECESSARY
+    'opa_account_num',               # KEEP for JOIN****
+    'address',                       # KEEP for JOIN check
+    #'unit_type',                     # UNNECESSARY
+    #'unit_num',                      # UNNECESSARY
+    #'zip',                           # UNNECESSARY
+    #'censustract',                   # UNNECESSARY
+    #'council_district',              # UNNECESSARY
+    'opa_owner',                     # KEEP- ------------------------------------OPA's ownership from the current deed for the property.
+    #'systemofrecord',                # UNNECESSARY
+    #'posse_jobid',                   # UNNECESSARY
     'lng',
     'lat')
+
 
 # permittype categories:
 permitCats <- 
@@ -408,14 +466,15 @@ permitCats <-
 
 
 
+# Data wrangling
 # type of work across categories:
 permitTypes <- as.data.frame(table(permits$typeofwork))
 
 
 # Filter data with PERMIT TYPES (building or zoning)
 permitsData <- permits %>%
-  select(varsPermits) %>%
-  filter(permitissuedate > as.Date.character('2017-01-01')) %>% # SET start date
+  dplyr::select(varsPermits) %>%
+  filter(permitissuedate > initialDate) %>% # SET start date
   filter(permittype %in% permitCats) %>%
   # filter(., grepl("NEW CONSTRUCTION", typeofwork)) %>%
   filter(!is.na(lat), !is.na(lng)) %>% 
@@ -423,21 +482,12 @@ permitsData <- permits %>%
 
 
 table(permitsData$typeofwork)
-
-
-# Filter data with TYPE OF WORK (new construction)
-permitsData <- permits %>%
-  select(varsPermits) %>%
-  #filter(permittype %in% permitCats) %>%
-  filter(., grepl("NEW CONSTRUCTION", typeofwork)) %>%
-  filter(!is.na(lat), !is.na(lng)) %>% 
-  st_as_sf(coords = c("lng","lat"), crs = 4269)
-  
 table(permitsData$permittype)
 
 
 # quick map plot
-m(permitsData, zcol='permittype')
+# m(permitsData, zcol='permittype')
+
 
 ```
 
@@ -463,7 +513,7 @@ transfersVars <-
     #"document_id",                  # UNNECESSARY -------------------------------id of the real estate transfer document 
     "document_type",                # KEEP*** -----------------------------------refers to type of Real Estate Transaction
     "display_date",                 # KEEP***
-    #"street_address",               # UNNECESSARY
+    "street_address",               # KEEP for JOIN check
     #"zip_code",                     # UNNECESSARY
     #"ward",                         # UNNECESSARY
     "grantors",                     # KEEP? -------------------------------------seller (on deeds), or borrower (on mortgages)
@@ -509,14 +559,76 @@ transfersVars <-
     "lng")                          # KEEP
 
 
-
-# Data wrangle
+# Data wrangling
 transfersData <- transfers %>%
+  filter(display_date > initialDate) %>%
   dplyr::select(transfersVars) %>%
-  filter(display_date > as.Date.character('2017-01-01'))
+  rename('address' = street_address) %>%
+  filter(!is.na(opa_account_num))
 
 
 ```
+
+
+### D3: Violations
+
+```{r demand data violations}
+
+# Load VIOLATIONS data from OpenDataPhilly's Carto API
+violations <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+violations&filename=violations&format=csv&skipfields=cartodb_id')
+
+# OpenDataPhilly - Violations (34 variables)
+violationsVars <- c(
+  #"the_geom",                   # UNNECESSARY 
+  #"the_geom_webmercator",       # UNNECESSARY 
+  #"objectid",                   # UNNECESSARY
+  #"addressobjectid",            # UNNECESSARY
+  #"parcel_id_num",              # UNNECESSARY
+  #"casenumber",                 # UNNECESSARY
+  # casecreateddate",            # UNNECESSARY ----reference is violation date
+  #"casecompleteddate",          # UNNECESSARY
+  #"casetype",                   # UNNECESSARY
+  #"casestatus",                 # UNNECESSARY
+  #"caseresponsibility",         # UNNECESSARY
+  #"caseprioritydesc",           # UNNECESSARY
+  #"violationnumber",            # UNNECESSARY
+  "violationdate",              # KEEP?
+  "violationcode",              # UNNECESSARY
+  "violationcodetitle",         # UNNECESSARY
+  "violationstatus",            # KEEP?
+  #"violationresolutiondate",    # UNNECESSARY
+  #"violationresolutioncode",    # UNNECESSARY
+  #"mostrecentinvestigation",    # UNNECESSARY
+  "opa_account_num",            # KEEP for JOIN****
+  "address",                    # KEEP for JOIN check
+  #"unit_type",                  # UNNECESSARY
+  #"unit_num",                   # UNNECESSARY
+  #"zip",                        # UNNECESSARY
+  #"censustract",                # UNNECESSARY
+  "opa_owner",                  # KEEP***
+  #"systemofrecord",             # UNNECESSARY
+  #"geocode_x",                  # UNNECESSARY
+  #"geocode_y",                  # UNNECESSARY
+  #"council_district",           # UNNECESSARY
+  #"posse_jobid",                # UNNECESSARY
+  "lat",                        # 
+  "lng")                        # 
+
+# Data wrangling
+violationsData <- violations %>%
+  dplyr::select(violationsVars) %>%
+  filter(violationdate > initialDate)
+
+
+len(unique(violations$violationcodetitle))
+
+
+
+
+
+```
+
+
 
 
 
@@ -533,16 +645,56 @@ transfersData <- transfers %>%
 
 
 
-### Other Data
 
-```{r demand data violations}
 
-# Load VIOLATIONS data from OpenDataPhilly's Carto API
-violations <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+violations&filename=violations&format=csv&skipfields=cartodb_id')
+
+```{r join datasets A}
+
+
+addresses <- c('309 WIOTA ST','318 WIOTA ST','328 WIOTA ST','420 WIOTA ST','434 WIOTA ST','440 WIOTA ST')
+
+# Join Test
+x <- propertiesData %>%
+  filter(address %in% addresses)
+
+y <- parcelsData %>%
+  filter(address %in% addresses)
+
+z <- vacantLandData %>%
+  filter(address %in% addresses)
+
+
+a <- permitsData %>%
+  filter(address %in% addresses)
+
+b <- transfersData %>%
+  filter(address %in% addresses)
+
+# c <- violationsData %>%
+#   filter(address %in% addresses)
+
+
+# SUPPLY SIDE
+# JOIN properties to parcels
+xy <- x %>%
+  left_join(y, by=c('pin'='PIN'))
+
+# add vacant land
+xyz <- xy %>%
+  left_join(z, by=c('parcel_number'='OPA_ID'))
+
+
+# DEMAND (multiple values per property?)
+# add permits? (demand side)
+a_xyz <-  xyz %>% 
+  left_join(a, by = c('parcel_number'='opa_account_num'))
+
+# add transfers data
+ab_xyz <- xyz %>%
+  left_join(b, by = c('parcel_number'='opa_account_num'))
 
 
 ```
-
 
 
 
