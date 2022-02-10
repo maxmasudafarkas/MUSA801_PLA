@@ -54,6 +54,37 @@ st_c <- st_coordinates
 ```
 
 
+### Geographic boundaries
+
+```{r geometry}
+
+# 
+
+# 
+# # get geometry for blocks in Philadelphia
+# phlblocks <- tigris::blocks(state = 42, county = 101) %>%
+#   dplyr::select(GEOID10, geometry)
+# 
+# # get geometry for block groups in Philadelphia
+# phlgroups <- tigris::block_groups(state = 42, county = 101) %>%
+#   dplyr::select(GEOID, geometry)
+
+# get geometry for tracts in Philadelphia
+phltracts <- tigris::tracts(state = 42, county = 101) %>%
+  dplyr::select(GEOID, geometry)
+
+# get geometry for the county of Philadelphia
+phlcounty <- tigris::counties(state = 42) %>%
+  filter(GEOID == '42101') %>%
+  dplyr::select(GEOID, geometry)
+
+
+
+```
+
+
+
+
 
 
 ### Supply-side data
@@ -93,13 +124,12 @@ m(usBankLiens_1, zcol='CALC_TOTAL')
 
 
 
-#### S3: Real Estate Tax Delinquencies
+#### S2: Real Estate Tax Delinquencies
 
 ```{r supply tax delinquencies}
 
 # Real Estate Delinquencies from OpenData Philly:
 delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
-
 
 # Variables - Tax Delinquencies (53 vars)
 delinquenciesVars <-
@@ -110,8 +140,8 @@ delinquenciesVars <-
     #"zip_4",                          # UNNECESSARY
     #"unit_type",                      # UNNECESSARY
     #"unit_num",                       # UNNECESSARY
-    "owner",                          # KEEP for reference
-    "co_owner",                       # KEEP for reference
+    #"owner",                          # UNNECESSARY
+    #"co_owner",                       # UNNECESSARY
     #"principal_due",                  # UNNECESSARY -----------------------------The amount of principal due.
     #"penalty_due",                    # UNNECESSARY -----------------------------The penalty amount due.
     #"interest_due",                   # UNNECESSARY -----------------------------The amount of interest due.
@@ -125,27 +155,27 @@ delinquenciesVars <-
     "most_recent_payment_date",       # KEEP for reference
     "year_of_last_assessment",        # KEEP for reference
     "total_assessment",               # KEEP for reference
-    "taxable_assessment",             # KEEP for reference
+    #"taxable_assessment",             # UNNECESSARY
     #"mailing_address",                # UNNECESSARY
     #"mailing_city",                   # UNNECESSARY
     #"mailing_state",                  # UNNECESSARY
     #"mailing_zip",                    # UNNECESSARY
     #"return_mail",                    # UNNECESSARY
-    "building_code",                  # ???? ------------------------------------Building codes describe the building.
+    #"building_code",                  # ???? ------------------------------------Building codes describe the building.
     #"detail_building_description",    # ???? ------------------------------------Description of the building code.
     #"general_building_description",   # ???? ------------------------------------General description of how the building is used.
     "building_category",              # ???? ------------------------------------Type of Building Group (residential, commercial, etc.).
-    "coll_agency_num_years",          # ???? ------------------------------------TO COLLECTION AGENCY
-    "coll_agency_most_recent_year",   # ???? ------------------------------------TO COLLECTION AGENCY
-    "coll_agency_oldest_year",        # ???? ------------------------------------TO COLLECTION AGENCY
-    "coll_agency_principal_owed",     # ???? ------------------------------------TO COLLECTION AGENCY
-    "coll_agency_total_owed",         # ???? ------------------------------------TO COLLECTION AGENCY
+    #"coll_agency_num_years",          # ???? ------------------------------------TO COLLECTION AGENCY
+    #"coll_agency_most_recent_year",   # ???? ------------------------------------TO COLLECTION AGENCY
+    #"coll_agency_oldest_year",        # ???? ------------------------------------TO COLLECTION AGENCY
+    #"coll_agency_principal_owed",     # ???? ------------------------------------TO COLLECTION AGENCY
+    #"coll_agency_total_owed",         # ???? ------------------------------------TO COLLECTION AGENCY
     #"exempt_abatement_assessment",    # UNNECESSARY -----------------------------The amount excluded from the tax base.
     #"homestead_value",                # UNNECESSARY -----------------------------Amount of Homestead Exemption.
-    "net_tax_value_after_homestead",  # ???? ------------------------------------The net tax value after the homestead exemption.
+    #"net_tax_value_after_homestead",  # ???? ------------------------------------The net tax value after the homestead exemption.
     #"agreement_agency",               # UNNECESSARY -----------------------------Either "TIPS","lbr","grb","LAW" 
     #"sequestration_enforcement",      # UNNECESSARY -----------------------------If the property is a rental, the city can collect rent
-    "bankruptcy",                     # UNNECESSARY -----------------------------Active bankruptcy
+    #"bankruptcy",                     # UNNECESSARY -----------------------------Active bankruptcy
     #"years_in_bankruptcy",            # UNNECESSARY 
     #"most_recent_bankrupt_year",      # UNNECESSARY
     #"oldest_bankrupt_year",           # UNNECESSARY
@@ -153,17 +183,21 @@ delinquenciesVars <-
     #"total_amount_bankrupt_years",    # UNNECESSARY
     "sheriff_sale",                   # KEEP*** ---------------------------------Property is in the Sheriff Sale Process (any stage).
     "liens_sold_1990s",               # KEEP*** ---------------------------------Property was included in 1997 Lien Sale.
-    "liens_sold_2015",                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
+    "liens_sold_2015")                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
     #"assessment_under_appeal",        # UNNECESSARY -----------------------------the owner has appealed the assessment.
-    "year_month")                     # year$month >>>> Unlisted in metadata
+    #"year_month")                     # year$month >>>> Unlisted in metadata
 
 
 # Data wrangling
 delinquenciesData <- delinquencies %>%
   dplyr::select(delinquenciesVars) %>%
-  rename("address" = street_address)
+  rename("address" = street_address) %>%
+  mutate(opa_number = sprintf("%09d", opa_number))
+  #filter(sheriff_sale == 'Y')
 
+# table(delinquenciesData$sheriff_sale)
 
+g(delinquenciesData)
 
 ```
 
@@ -230,7 +264,7 @@ propertiesVars <-
     #"parcel_shape",                   # UNNECESSARY
     #"quality_grade",                  # UNNECESSARY
     "recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
-    #"registry_number",                # UNNECESSARY
+    "registry_number",                # KEEP to JOIN
     "sale_date",                      # KEEP
     "sale_price",                     # KEEP
     #"separate_utilities",             # UNNECESSARY
@@ -263,12 +297,9 @@ propertiesVars <-
 # Data wrangling
 propertiesData <- properties %>%
   dplyr::select(propertiesVars) %>%
-  rename("address" = location)
-
-
-
-unique(propertiesData$unfinished)
-
+  rename("address" = location) %>%
+  filter(!is.na(lat), !is.na(lng)) %>%              ### REMOVE before joining to parcels!!!
+  st_as_sf(coords = c("lat","lng"), crs = 4326) 
 
 
 ```
@@ -286,7 +317,7 @@ parcels <- st_read('https://opendata.arcgis.com/datasets/1c57dd1b3ff84449a4b0e3f
 parcelsVars <- 
   c(#"OBJECTID",                         # UNNECESSARY
     #"RECSUB",                           # UNNECESSARY
-    #"BASEREG",                          # REPEATED -----------------------------The registry number which there is a deed attached to.
+    "BASEREG",                          # KEEP to JOIN -----------------------------The registry number which there is a deed attached to.
     #"MAPREG",                           # UNNECESSARY
     #"PARCEL",                           # UNNECESSARY
     #"RECMAP",                           # UNNECESSARY
@@ -306,7 +337,7 @@ parcelsVars <-
     #"INACTDATE",                        # UNNECESSARY
     "ORIG_DATE",                        # ???? ----------------------------------Date of origination
     "STATUS",                           # ????
-    #"GEOID",                            # UNNECESSARY
+    "GEOID",                            # FOR REFERENCE
     #"STDES",                            # UNNECESSARY
     #"ADDR_SOURCE",                      # UNNECESSARY
     "ADDR_STD",                         # KEEP for JOIN check****
@@ -395,6 +426,9 @@ initialDate <- as.Date.character('2017-01-01')
 permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
 
 
+#permits <- st_read('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+permits&filename=permits&format=geojson&skipfields=cartodb_id')
+
+
 # List the permit data set variables needed
 varsPermits <-
   c(#'objectid',                      # UNNECESSARY
@@ -421,8 +455,9 @@ varsPermits <-
     #'opa_owner',                     # REPETITIVE ------------------------------OPA's ownership from the current deed for the property.
     #'systemofrecord',                # UNNECESSARY
     #'posse_jobid',                   # UNNECESSARY
-    'lng',
-    'lat')
+    'lng','lat'
+    #'geometry'
+    )
 
 # EXAMINE VARIABLES
 
@@ -739,14 +774,25 @@ len(unique(violations$violationcodetitle))
 
 
 
-#### JOIN tests
-
-```{r join datasets A}
+#### Join tests
 
 
-addresses <- c('309 WIOTA ST','318 WIOTA ST','328 WIOTA ST','420 WIOTA ST','434 WIOTA ST','440 WIOTA ST')
+```{r join datasets wiota}
 
-# Join Test
+
+# Join Test in particular Street
+
+# Generate addresses for whole street
+streetName <- 'S MELVILLE ST'
+
+addresses <- list()
+for (i in 500:700){
+  address <- paste0(as.character(i),' ',streetName)
+  addresses <- append(addresses, address)
+}
+
+
+# supply side
 x <- propertiesData %>%
   filter(address %in% addresses)
 
@@ -757,37 +803,175 @@ z <- vacantLandData %>%
   filter(address %in% addresses)
 
 
+# demand side
 a <- permitsData %>%
   filter(address %in% addresses)
 
-b <- transfersData %>%
-  filter(address %in% addresses)
+b <- delinquenciesData %>%
+   filter(address %in% addresses)
 
-# c <- violationsData %>%
-#   filter(address %in% addresses)
+c <- transfersData %>%
+  filter(address %in% addresses)
 
 
 # SUPPLY SIDE
-# JOIN properties to parcels
-xy <- x %>%
-  left_join(y, by=c('pin'='PIN'))
+# JOIN properties to parcels to vacantLand as reference to PROPERTIES
 
-# add vacant land
-xyz <- xy %>%
-  left_join(z, by=c('parcel_number'='OPA_ID'))
+xyz_1 <- x %>%
+  inner_join(y, by=c('registry_number'='MAPREG'))
+
+xyz_2 <- x %>%
+  inner_join(y, by=c('pin'='PIN'))
 
 
-# DEMAND (multiple values per property?)
-# add permits? (demand side)
+
+xyz_1 <- propertiesData %>%
+  st_drop_geometry() %>%
+  inner_join(parcelsData, by=c('registry_number'='MAPREG'))
+
+xyz_2 <- propertiesData %>%
+  st_drop_geometry() %>%
+  inner_join(parcelsData, by=c('pin'='PIN'))
+
+
+
+len(unique(propertiesData$pin))
+len((parcelsData$PIN))
+
+table(unique(propertiesData$pin) %in% unique(parcelsData$PIN))
+table(unique(parcelsData$PIN) %in% unique(propertiesData$pin))
+
+
+table(unique(propertiesData$registry_number) %in% unique(parcels$MAPREG))
+table(unique(parcels$MAPREG) %in% unique(propertiesData$registry_number))
+
+
+len(unique(propertiesData$registry_number))
+len(unique(parcelsData$MAPREG))
+
+
+
+xyz <- propertiesData %>%
+  left_join(parcelsData, by=c('registry_number'='BASEREG')) %>%
+  left_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
+
+
+
+# DEMAND SIDE (multiple values per property)
+# join properties to permitsData
 a_xyz <-  xyz %>% 
   left_join(a, by = c('parcel_number'='opa_account_num'))
 
+# join properties to delinquenciesData
+b_xyz <- xyz %>%
+  left_join(b, by = c('parcel_number'='opa_number'))
+
 # add transfers data
-ab_xyz <- xyz %>%
-  left_join(b, by = c('parcel_number'='opa_account_num'))
+c_xyz <- xyz %>%
+  left_join(c, by = c('parcel_number'='opa_account_num'))
+
+
+
+m(y, zcol='address')
+
+
+
+
+
+
+
+# JOINING delinquencies to properties:
+
+
+len(unique(delinquenciesData$opa_number))
+
+table(unique(delinquenciesData$opa_number) %in% unique(propertiesData$parcel_number))
+table(unique(propertiesData$parcel_number) %in% unique(delinquenciesData$opa_number))
+
+
+initialDate = '2020-01-01'
+finalDate = '2021-01-01'
+
+delinquenciesProps <- propertiesData %>%
+  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
+  #filter(category_code == 6) %>%
+  filter(sheriff_sale == 'Y') %>%
+  mutate(debtPercentage = total_due/market_value) %>%
+  filter(sale_date > initialDate && sale_date < finalDate) %>%
+  st_sf()
+
+m(delinquenciesProps)
+
+
 
 
 ```
+
+
+
+
+```{r}
+
+
+vacantLandProps <- propertiesData %>%
+  inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
+
+
+m(vacantLandProps)
+g(vacantLandData)
+
+```
+
+
+
+
+
+```{r join datasets census tract}
+
+sf::sf_use_s2(F)
+
+myTract <- phltracts %>%
+  filter(GEOID ==	'42101009200') %>%
+  st_transform(st_crs(parcels))
+
+myProperties <- propertiesData %>%
+  st_transform(st_crs(parcels)) %>%
+  st_filter(., myTract)
+
+myParcels <- parcelsData %>%
+  st_filter(., myTract)
+
+myLots <- myProperties %>%
+  st_drop_geometry() %>%
+  inner_join(myParcels, by=c('pin'='PIN')) %>%
+  st_sf()
+
+
+myDelinquencies <- delinquenciesData %>%
+  st_transform()
+
+myPermits <- permitsData %>%
+  st_transform(st_crs(parcels)) %>%
+  #filter(permittype == 'BUILDING') %>%
+  st_filter(., myTract)
+
+
+m(myLots)
+m()
+
+
+```
+
+
+```{r}
+
+m(myPermits)
+
+
+
+```
+
+
 
 
 
