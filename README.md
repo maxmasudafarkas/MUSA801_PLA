@@ -1,4 +1,4 @@
-# Safeguarding Vacant Lots in Philadelphia
+# Yes Vacancy: A Dashboard and Predictive Model to Protect Vacant Lots in Philadelphia
 
 ## Introduction
 
