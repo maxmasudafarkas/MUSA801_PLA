@@ -223,7 +223,7 @@ propertiesVars <-
     #"building_code",                  # UNNECESSARY
     #"building_code_description",      # UNNECESSARY
     "category_code",                  # KEEP ------------------------------------determines if it is VACANT LAND
-    "category_code_description",      # KEEP ------------------------------------determines if it is VACANT LAND
+    #"category_code_description",      # KEEP ------------------------------------determines if it is VACANT LAND
     #"census_tract",                   # UNNECESSARY
     #"central_air",                    # UNNECESSARY
     #"cross_reference",                # UNNECESSARY
@@ -318,7 +318,7 @@ parcelsVars <-
   c(#"OBJECTID",                         # UNNECESSARY
     #"RECSUB",                           # UNNECESSARY
     "BASEREG",                          # KEEP to JOIN -----------------------------The registry number which there is a deed attached to.
-    #"MAPREG",                           # UNNECESSARY
+    "MAPREG",                           # UNNECESSARY
     #"PARCEL",                           # UNNECESSARY
     #"RECMAP",                           # UNNECESSARY
     #"STCOD",                            # UNNECESSARY
@@ -648,8 +648,8 @@ transfersVars <-
     "grantees",                     # KEEP? -------------------------------------buyer, recipient, new owner, or lien holder
     #"cash_consideration",           # UNNECESSARY
     #"other_consideration",          # UNNECESSARY
-    "total_consideration",          # KEEP?** -----------------------------------good exchanged for the real estate (usually money)
-    "assessed_value",               # KEEP?** -----------------------------------assess value by OPA
+    #"total_consideration",          # KEEP?** -----------------------------------good exchanged for the real estate (usually money)
+    #"assessed_value",               # KEEP?** -----------------------------------assess value by OPA
     #"common_level_ratio",           # UNNECESSARY -------------------------------fair market : assessment values ratio
     "fair_market_value",            # KEEP?** -----------------------------------assessment value by common level ratio
     #"state_tax_amount",             # UNNECESSARY
@@ -692,7 +692,18 @@ transfersData <- transfers %>%
   filter(display_date > initialDate) %>%
   dplyr::select(transfersVars) %>%
   rename('address' = street_address) %>%
-  filter(!is.na(opa_account_num))
+  filter(!is.na(opa_account_num)) %>%
+  filter(document_type %in% c('DEED',
+                              'DEED LAND BANK',
+                              'DEED MISCELLANEOUS',
+                              'DEED MISCELLANEOUS TAXABLE',
+                              'DEED OF CONDEMNATION',
+                              'DEED SHERIFF'))
+  
+
+
+table(transfers$document_type)
+
 
 
 ```
@@ -779,7 +790,6 @@ len(unique(violations$violationcodetitle))
 
 ```{r join datasets wiota}
 
-
 # Join Test in particular Street
 
 # Generate addresses for whole street
@@ -814,79 +824,111 @@ c <- transfersData %>%
   filter(address %in% addresses)
 
 
-# SUPPLY SIDE
-# JOIN properties to parcels to vacantLand as reference to PROPERTIES
-
-xyz_1 <- x %>%
-  inner_join(y, by=c('registry_number'='MAPREG'))
-
-xyz_2 <- x %>%
-  inner_join(y, by=c('pin'='PIN'))
+```
 
 
 
-xyz_1 <- propertiesData %>%
-  st_drop_geometry() %>%
-  inner_join(parcelsData, by=c('registry_number'='MAPREG'))
 
-xyz_2 <- propertiesData %>%
-  st_drop_geometry() %>%
-  inner_join(parcelsData, by=c('pin'='PIN'))
+```{r join properties to parcels}
 
+# propertiesData <---> parcelsData
 
-
+# check length of JOIN variables A
 len(unique(propertiesData$pin))
-len((parcelsData$PIN))
+len(unique(parcelsData$PIN))
 
+# get matching success rate using 'pin' = 'PIN'
 table(unique(propertiesData$pin) %in% unique(parcelsData$PIN))
 table(unique(parcelsData$PIN) %in% unique(propertiesData$pin))
 
-
-table(unique(propertiesData$registry_number) %in% unique(parcels$MAPREG))
-table(unique(parcels$MAPREG) %in% unique(propertiesData$registry_number))
-
-
+# check length of JOIN variables B
 len(unique(propertiesData$registry_number))
 len(unique(parcelsData$MAPREG))
 
+# get matching success rate using 'pin' = 'PIN'
+table(unique(propertiesData$registry_number) %in% unique(parcels$MAPREG))
+table(unique(parcels$MAPREG) %in% unique(propertiesData$registry_number))
+58063/(508189+58063)    # 10% of properties not joined
+94027/(94027+508189)    # 16% of parcels not joined
+
+# join propertiesData to parcelData
+parcelsProps_A <- propertiesData %>%
+  st_drop_geometry() %>%
+  inner_join(parcelsData, by=c('pin'='PIN'), keep=T)
+
+# get properties that were not joined by pin
+notJoined <- propertiesData %>%
+  filter(!pin %in% unique(parcelsProps$pin))
+
+# join the ones that couldn't be joined by pin=PIN by their registry number?
+parcelsProps_B <- notJoined %>%
+  st_drop_geometry() %>%
+  inner_join(., parcelsData, by=c('registry_number'='BASEREG'), keep=T)
+
+# unite two different join types
+parcelsProps <- rbind(parcelsProps_A, parcelsProps_B)
 
 
-xyz <- propertiesData %>%
-  left_join(parcelsData, by=c('registry_number'='BASEREG')) %>%
-  left_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
+```
 
 
+```{r join properties to vacantLand}
 
-# DEMAND SIDE (multiple values per property)
-# join properties to permitsData
-a_xyz <-  xyz %>% 
-  left_join(a, by = c('parcel_number'='opa_account_num'))
+# propertiesData <---> vacantLandData
 
-# join properties to delinquenciesData
-b_xyz <- xyz %>%
-  left_join(b, by = c('parcel_number'='opa_number'))
+len(unique(vacantLandData$parcel_number))
 
-# add transfers data
-c_xyz <- xyz %>%
-  left_join(c, by = c('parcel_number'='opa_account_num'))
+table(unique(vacantLandData$OPA_ID) %in% unique(propertiesData$parcel_number))
+table(unique(propertiesData$parcel_number) %in% unique(vacantLandData$OPA_ID))
 
+49/(27579+49)           # 0.2%   
+27579/(27579+553725)    # 4.7%
 
+vacantLandProps <- propertiesData %>%
+  st_drop_geometry() %>%
+  inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
 
-m(y, zcol='address')
+# provisional map
+m(vacantLandProps)
 
-
-
+```
 
 
 
 
-# JOINING delinquencies to properties:
+```{r join permits to properties}
 
+# permitsData <---> propertiesData
+
+len(unique(permitsData$opa_account_num))
+
+table(unique(permitsData$opa_account_num) %in% unique(propertiesData$parcel_number))
+table(unique(propertiesData$parcel_number) %in% unique(permitsData$opa_account_num)) 
+
+540/(31466+540)         # 1.7%
+31466/(31466+549838)    # 5.4%
+
+
+permitsProps <- propertiesData %>%
+  st_drop_geometry() %>%
+  inner_join(permitsData,  by = c('parcel_number'='opa_account_num'))
+
+
+```
+
+
+
+```{r join delinquencies to properties}
+
+# propertiesData <---> delinquenciesData
 
 len(unique(delinquenciesData$opa_number))
 
 table(unique(delinquenciesData$opa_number) %in% unique(propertiesData$parcel_number))
 table(unique(propertiesData$parcel_number) %in% unique(delinquenciesData$opa_number))
+
+2077/(70639+2077)       #  3%
+70639/(70639+510665)    # 12%
 
 
 initialDate = '2020-01-01'
@@ -895,33 +937,36 @@ finalDate = '2021-01-01'
 delinquenciesProps <- propertiesData %>%
   inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
   #filter(category_code == 6) %>%
-  filter(sheriff_sale == 'Y') %>%
-  mutate(debtPercentage = total_due/market_value) %>%
-  filter(sale_date > initialDate && sale_date < finalDate) %>%
+  #filter(sheriff_sale == 'Y') %>%
+  #mutate(debtPercentage = total_due/market_value) %>%
+  filter(sale_date >= initialDate & sale_date < finalDate) %>%
   st_sf()
 
+# provisional map of delinquencies
 m(delinquenciesProps)
 
-
-
-
 ```
 
 
 
 
-```{r}
 
+```{r join transfers to properties}
 
-vacantLandProps <- propertiesData %>%
-  inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
+# propertiesData <---> transfersData
 
+len(unique(transfersData$opa_account_num))
 
-m(vacantLandProps)
-g(vacantLandData)
+table(unique(transfersData$opa_account_num) %in% unique(propertiesData$parcel_number))
+table(unique(propertiesData$parcel_number) %in% unique(transfersData$opa_account_num))
+
+424/(58427+425)       #  1%
+58427/(58427+522877)  # 10%
+
+transfersProps <- propertiesData %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num'))
 
 ```
-
 
 
 
@@ -963,13 +1008,6 @@ m()
 ```
 
 
-```{r}
-
-m(myPermits)
-
-
-
-```
 
 
 
