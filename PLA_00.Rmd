@@ -58,9 +58,6 @@ st_c <- st_coordinates
 
 ```{r geometry}
 
-# 
-
-# 
 # # get geometry for blocks in Philadelphia
 # phlblocks <- tigris::blocks(state = 42, county = 101) %>%
 #   dplyr::select(GEOID10, geometry)
@@ -79,11 +76,7 @@ phlcounty <- tigris::counties(state = 42) %>%
   dplyr::select(GEOID, geometry)
 
 
-
 ```
-
-
-
 
 
 
@@ -705,7 +698,6 @@ transfersData <- transfers %>%
 table(transfers$document_type)
 
 
-
 ```
 
 
@@ -762,14 +754,7 @@ violationsData <- violations %>%
 len(unique(violations$violationcodetitle))
 
 
-
-
-
 ```
-
-
-
-
 
 
 
@@ -784,9 +769,9 @@ len(unique(violations$violationcodetitle))
 
 
 
+### Join Datasets
 
-#### Join tests
-
+#### Join test
 
 ```{r join datasets wiota}
 
@@ -827,7 +812,7 @@ c <- transfersData %>%
 ```
 
 
-
+### Parcels with properties
 
 ```{r join properties to parcels}
 
@@ -856,20 +841,27 @@ parcelsProps_A <- propertiesData %>%
   st_drop_geometry() %>%
   inner_join(parcelsData, by=c('pin'='PIN'), keep=T)
 
-# get properties that were not joined by pin
-notJoined <- propertiesData %>%
-  filter(!pin %in% unique(parcelsProps$pin))
-
-# join the ones that couldn't be joined by pin=PIN by their registry number?
-parcelsProps_B <- notJoined %>%
-  st_drop_geometry() %>%
-  inner_join(., parcelsData, by=c('registry_number'='BASEREG'), keep=T)
+# # get properties that were not joined by pin
+# notJoined <- propertiesData %>%
+#   filter(!pin %in% unique(parcelsProps$pin))
+# 
+# # join the ones that couldn't be joined by pin=PIN by their registry number?
+# parcelsProps_B <- notJoined %>%
+#   st_drop_geometry() %>%
+#   inner_join(., parcelsData, by=c('registry_number'='BASEREG'), keep=T)
 
 # unite two different join types
-parcelsProps <- rbind(parcelsProps_A, parcelsProps_B)
+#parcelsProps <- cbind(parcelsProps_A, parcelsProps_B)
+parcelsProps <- parcelsProps_A
+
+# save locally
+# saveRDS(parcelsProps, file = "./local/parcelProps.rds")
 
 
 ```
+
+
+### Vacant Land to properties
 
 
 ```{r join properties to vacantLand}
@@ -888,8 +880,9 @@ vacantLandProps <- propertiesData %>%
   st_drop_geometry() %>%
   inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
 
-# provisional map
-m(vacantLandProps)
+
+# save locally
+# saveRDS(vacantLandProps, file = "./local/vacantLandProps.rds")
 
 ```
 
@@ -913,10 +906,12 @@ permitsProps <- propertiesData %>%
   st_drop_geometry() %>%
   inner_join(permitsData,  by = c('parcel_number'='opa_account_num'))
 
+# save locally
+# saveRDS(permitsProps, file = "./local/permitsProps.rds")
 
 ```
 
-
+### Delinquencies to properties
 
 ```{r join delinquencies to properties}
 
@@ -942,13 +937,13 @@ delinquenciesProps <- propertiesData %>%
   filter(sale_date >= initialDate & sale_date < finalDate) %>%
   st_sf()
 
-# provisional map of delinquencies
-m(delinquenciesProps)
+# save locally
+# saveRDS(delinquenciesProps, file = "./local/delinquenciesProps.rds")
 
 ```
 
 
-
+### Transfers to properties
 
 
 ```{r join transfers to properties}
@@ -966,9 +961,12 @@ table(unique(propertiesData$parcel_number) %in% unique(transfersData$opa_account
 transfersProps <- propertiesData %>%
   inner_join(transfersData, by= c('parcel_number'='opa_account_num'))
 
+# save locally
+#csaveRDS(transfersProps, file = "./local/transfersProps.rds")
+
 ```
 
-
+### Look up by census tract
 
 
 ```{r join datasets census tract}
@@ -999,10 +997,6 @@ myPermits <- permitsData %>%
   st_transform(st_crs(parcels)) %>%
   #filter(permittype == 'BUILDING') %>%
   st_filter(., myTract)
-
-
-m(myLots)
-m()
 
 
 ```
