@@ -30,6 +30,7 @@ library(tigris)
 library(mapview)
 library(geojsonR)
 library(tidyverse)
+library(tidycensus)
 library(lubridate)
 library(gganimate)
 library(gridExtra)
@@ -58,6 +59,8 @@ st_c <- st_coordinates
 
 ```{r geometry}
 
+phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
+
 # # get geometry for blocks in Philadelphia
 # phlblocks <- tigris::blocks(state = 42, county = 101) %>%
 #   dplyr::select(GEOID10, geometry)
@@ -68,12 +71,14 @@ st_c <- st_coordinates
 
 # get geometry for tracts in Philadelphia
 phltracts <- tigris::tracts(state = 42, county = 101) %>%
-  dplyr::select(GEOID, geometry)
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
 
 # get geometry for the county of Philadelphia
 phlcounty <- tigris::counties(state = 42) %>%
   filter(GEOID == '42101') %>%
-  dplyr::select(GEOID, geometry)
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
 
 
 ```
@@ -190,7 +195,6 @@ delinquenciesData <- delinquencies %>%
 
 # table(delinquenciesData$sheriff_sale)
 
-g(delinquenciesData)
 
 ```
 
@@ -256,9 +260,9 @@ propertiesVars <-
     "parcel_number",                  # KEEP to JOIN***
     #"parcel_shape",                   # UNNECESSARY
     #"quality_grade",                  # UNNECESSARY
-    "recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
+    #"recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
     "registry_number",                # KEEP to JOIN
-    "sale_date",                      # KEEP
+    #"sale_date",                      # KEEP
     "sale_price",                     # KEEP
     #"separate_utilities",             # UNNECESSARY
     #"sewer",                          # UNNECESSARY
@@ -275,7 +279,7 @@ propertiesVars <-
     "total_area",                     # KEEP
     #"total_livable_area",             # UNNECESSARY
     #"type_heater",                    # UNNECESSARY
-    "unfinished",                     # KEEP?
+    #"unfinished",                     # UNNECESSARY
     #"unit",                           # UNNECESSARY
     #"utility",                        # UNNECESSARY
     #"view_type",                      # UNNECESSARY
@@ -292,7 +296,9 @@ propertiesData <- properties %>%
   dplyr::select(propertiesVars) %>%
   rename("address" = location) %>%
   filter(!is.na(lat), !is.na(lng)) %>%              ### REMOVE before joining to parcels!!!
-  st_as_sf(coords = c("lat","lng"), crs = 4326) 
+  st_as_sf(coords = c("lat","lng"), crs = 4326) %>%
+  st_transform(st_crs(phlcrs))
+
 
 
 ```
@@ -354,11 +360,8 @@ parcelsVars <-
 # Data wrangling
 parcelsData <- parcels %>%
   dplyr::select(parcelsVars) %>%
-  rename("address" = ADDR_STD)
-
-# visualize  
-# z <- head(parcelsData, n=10000)
-# m(z)
+  rename("address" = ADDR_STD) %>%
+  st_transform(st_crs(phlcrs))
 
 
 ```
@@ -414,25 +417,20 @@ vacantLandData <- vacantLand %>%
 
 initialDate <- as.Date.character('2017-01-01')
 
-
 # Load PERMITS data from OpenDataPhilly's Carto API
-permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
-
-
-#permits <- st_read('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+permits&filename=permits&format=geojson&skipfields=cartodb_id')
-
+# permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
 
 # List the permit data set variables needed
 varsPermits <-
   c(#'objectid',                      # UNNECESSARY
     #'permitnumber',                  # UNNECESSARY
     #'addressobjectid',               # UNNECESSARY
-    'parcel_id_num',                 # KEEP for referencing parcels
+    'parcel_id_num',                 # KEEP for JOIN
     'permittype',                    # KEEP*****
     'permitdescription',             # KEEP for reference
     'commercialorresidential',        # MAYBE
     'typeofwork',                    # KEEP****
-    'approvedscopeofwork',           # UNNECESSARY
+    #'approvedscopeofwork',           # UNNECESSARY - detailed description
     'permitissuedate',               # KEEP***
     'status',                        # KEEP
     'applicanttype',                 # MAYBE
@@ -453,7 +451,6 @@ varsPermits <-
     )
 
 # EXAMINE VARIABLES
-
 # permittype
 permitTypes <- as.data.frame(table(permits$permittype))
 
@@ -529,7 +526,7 @@ permitsData <- permits %>%
   filter(permitissuedate > initialDate) %>% # SET start date
   filter(permittype %in% permitCats) %>%
   filter(!is.na(lat), !is.na(lng)) %>% 
-  st_as_sf(coords = c("lng","lat"), crs = 4269) 
+  st_as_sf(coords = c("lng","lat"), crs = phlcrs) 
 
 
 # type of work across SELECTED categories (48):
@@ -541,7 +538,7 @@ permitTypeOfWorkCats <-
     #'ADDITION AND/OR ALTERATION',                       #  17051 ***NEW ***BUILDING (6290)  ***RESIDENTIAL BUILDING (10761)
     #'ALTER',                                            #      1 ***OLD ***ZONING
     #'AMEND',                                            #    162 ***OLD ***ZONING {Admin stuff}
-    'CHANGE OF USE',                                    #   3046 ***NEW ***ZONING {General change of use}
+    #'CHANGE OF USE',                                    #   3046 ***NEW ***ZONING {General change of use}
     'COMBINED LOT LINE RELOCATION AND NEW DEVELOPMENT', #    313 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
     'COMDEM',                                           #   1163 ***OLD ***ZONING {Complete demolition}
     #'CONDITIONAL ZONING APPROVAL',                      #     30 ***NEW ***ZONING
@@ -555,33 +552,33 @@ permitTypeOfWorkCats <-
     #'FENCE',                                            #     40 ***OLD ***ZONING
     #'FENCES ONLY',                                      #     26 ***NEW ***ZONING
     #'FITOUT',                                           #     91 ***OLD ***BUILDING {Commercial interiors}
-    'FOUND',                                            #    168 ***OLD ***BUILDING {Just foundations}
-    'FRAME',                                            #      1 ***OLD ***BUILDING
+    #'FOUND',                                            #    168 ***OLD ***BUILDING {Just foundations}
+    #'FRAME',                                            #      1 ***OLD ***BUILDING
     'FULL DEMOLITION',                                  #    644 ***NEW ***ZONING {Full demolition}
     'LOT LINE RELOCATION',                              #    317 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
     'LOTLIN',                                           #   2527 ***OLD ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
     #'MAJOR',                                            #      4 ***OLD ***ZONING (-3) ***BUILDING
-    'MOD/IN',                                           #     17 ***OLD ***BUILDING {Modular structure}
+    #'MOD/IN',                                           #     17 ***OLD ***BUILDING {Modular structure}
     'NEW CONSTRUCTION',                                 #<- 6292 ***NEW ***BUILDING (1812) ***RESIDENTIAL BUILDING (4480)
     'NEW CONSTRUCTION (SHELL ONLY)',                    #<-   19 ***NEW ***BUILDING
     #'NEW CONSTRUCTION (STAND ALONE)',                   #<-   48 ***NEW ***RESIDENTIAL BUILDING
     'NEW CONSTRUCTION, ADDITION, GFA CHANGE',           #<- 4986 ***NEW ***ZONING {New construction attached or added to existing}
-    'NEWCON',                                           #<- 5539 ***OLD ***ZONING (-3) ***BUILDING {New construction of structure}
+    'NEWCON'#                                           #<- 5539 ***OLD ***ZONING (-3) ***BUILDING {New construction of structure}
     #'PARKING ONLY',                                     #<-   97 ***NEW ***ZONING
     #'PARTBL',                                           #    116 ***OLD ***ZONING {Partial demolitions}
-    'PARTCH',                                           #   3317 ***OLD ***ZONING {Change in use}
+    #'PARTCH',                                           #   3317 ***OLD ***ZONING {Change in use}
     #'PARTIA',                                           #      4 ***OLD ***ZONING {Partial or complete demolitions}
     #'PARTSI',                                           #     36 ***OLD ***ZONING {Partial or complete demolitions}
     #'PRELIM',                                           #      6 ***OLD ***ZONING {Preliminary study}
     #'PREPL',                                            #      1
     #'SFADD',                                            #   3149 ***OLD ***ZONING {Add square footage to existing}
     #'SFRED',                                            #    253 ***OLD ***ZONING {Reduce square footage to existing}
-    'SHELL',                                            #      9 ***OLD ***BUILDING
+    #'SHELL',                                            #      9 ***OLD ***BUILDING
     #'SIGNAC',                                           #   1584 ***OLD ***ZONING
     #'SIGNE',                                            #     19 ***OLD ***ZONING
     #'SIGNNA',                                           #     18 ***OLD ***ZONING
     #'SIGNS (ACCESSORY / NON-ACCESSORY)',                #    872 ***NEW ***ZONING
-    'SITE'#,                                             #     29 ***OLD ***BUILDING
+    #'SITE',                                             #     29 ***OLD ***BUILDING
     #'TANK',                                             #     27 ***OLD ***ZONING (-26) ***BUILDING
     #'TANKRI',                                           #      1 ***OLD ***BUILDING
     #'ZBAADM'                                            #    332 ***OLD ***ZONING {Admin stuff}
@@ -693,68 +690,11 @@ transfersData <- transfers %>%
                               'DEED OF CONDEMNATION',
                               'DEED SHERIFF'))
   
-
-
 table(transfers$document_type)
 
 
 ```
 
-
-### D3: Violations
-
-```{r demand data violations}
-
-# Load VIOLATIONS data from OpenDataPhilly's Carto API
-violations <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+violations&filename=violations&format=csv&skipfields=cartodb_id')
-
-# OpenDataPhilly - Violations (34 variables)
-violationsVars <- c(
-  #"the_geom",                   # UNNECESSARY 
-  #"the_geom_webmercator",       # UNNECESSARY 
-  #"objectid",                   # UNNECESSARY
-  #"addressobjectid",            # UNNECESSARY
-  #"parcel_id_num",              # UNNECESSARY
-  #"casenumber",                 # UNNECESSARY
-  # casecreateddate",            # UNNECESSARY ----reference is violation date
-  #"casecompleteddate",          # UNNECESSARY
-  #"casetype",                   # UNNECESSARY
-  #"casestatus",                 # UNNECESSARY
-  #"caseresponsibility",         # UNNECESSARY
-  #"caseprioritydesc",           # UNNECESSARY
-  #"violationnumber",            # UNNECESSARY
-  "violationdate",              # KEEP?
-  "violationcode",              # UNNECESSARY
-  "violationcodetitle",         # UNNECESSARY
-  "violationstatus",            # KEEP?
-  #"violationresolutiondate",    # UNNECESSARY
-  #"violationresolutioncode",    # UNNECESSARY
-  #"mostrecentinvestigation",    # UNNECESSARY
-  "opa_account_num",            # KEEP for JOIN****
-  "address",                    # KEEP for JOIN check
-  #"unit_type",                  # UNNECESSARY
-  #"unit_num",                   # UNNECESSARY
-  #"zip",                        # UNNECESSARY
-  #"censustract",                # UNNECESSARY
-  "opa_owner",                  # KEEP***
-  #"systemofrecord",             # UNNECESSARY
-  #"geocode_x",                  # UNNECESSARY
-  #"geocode_y",                  # UNNECESSARY
-  #"council_district",           # UNNECESSARY
-  #"posse_jobid",                # UNNECESSARY
-  "lat",                        # 
-  "lng")                        # 
-
-# Data wrangling
-violationsData <- violations %>%
-  dplyr::select(violationsVars) %>%
-  filter(violationdate > initialDate)
-
-
-len(unique(violations$violationcodetitle))
-
-
-```
 
 
 
@@ -763,6 +703,44 @@ len(unique(violations$violationcodetitle))
 ```{r ACS data}
 
 
+censusKey <-  #'c2bdb8d298b60ec0cb50b561a2f8df61e92f6b39' # read_file('../censusapikey.R')
+
+# load census api key from local file
+census_api_key(censusKey)
+
+year <- 2021
+
+acsVariableList <- load_variables(2021, "acs5", cache = TRUE)
+
+
+censusVars <-
+  c("B02001_001E", # Total population 
+    "B11001_002E", # Total households
+    "B02001_002E", # Total white population 
+    "B19013_001E") # Median household income
+
+    ## ADD house ownership (to show pct of renters and owners
+)
+
+
+# Get the data
+tracts19 <-
+  get_acs(geography = "tract",
+          variables = censusVars,
+          year = year,
+          state = 42,
+          county = 101,
+          geometry= T,
+          output = "wide") %>%
+  st_transform(st_crs(phlcrs)) %>%
+  rename(totalPop = "B02001_001E",
+         totalHHs = "B11001_002E",
+         whitePop = "B02001_002E",
+         medHHInc = "B19013_001E") %>%
+  dplyr::select(-NAME, -starts_with("B")) %>%
+  replace(is.na(.), 0) %>%
+  mutate(pctWhite = ifelse(totalPop > 0, whitePop / totalPop, 0)) %>%
+  dplyr::select(-whitePop)
 
 
 ```
@@ -770,7 +748,6 @@ len(unique(violations$violationcodetitle))
 
 
 ### Join Datasets
-
 #### Join test
 
 ```{r join datasets wiota}
@@ -778,10 +755,10 @@ len(unique(violations$violationcodetitle))
 # Join Test in particular Street
 
 # Generate addresses for whole street
-streetName <- 'S MELVILLE ST'
+streetName <- 'WIOTA ST'
 
 addresses <- list()
-for (i in 500:700){
+for (i in 50:700){
   address <- paste0(as.character(i),' ',streetName)
   addresses <- append(addresses, address)
 }
@@ -790,10 +767,8 @@ for (i in 500:700){
 # supply side
 x <- propertiesData %>%
   filter(address %in% addresses)
-
 y <- parcelsData %>%
   filter(address %in% addresses)
-
 z <- vacantLandData %>%
   filter(address %in% addresses)
 
@@ -801,10 +776,8 @@ z <- vacantLandData %>%
 # demand side
 a <- permitsData %>%
   filter(address %in% addresses)
-
 b <- delinquenciesData %>%
    filter(address %in% addresses)
-
 c <- transfersData %>%
   filter(address %in% addresses)
 
@@ -873,16 +846,15 @@ len(unique(vacantLandData$parcel_number))
 table(unique(vacantLandData$OPA_ID) %in% unique(propertiesData$parcel_number))
 table(unique(propertiesData$parcel_number) %in% unique(vacantLandData$OPA_ID))
 
-49/(27579+49)           # 0.2%   
-27579/(27579+553725)    # 4.7%
+49/(27579+49)           # 0.2% of vacantLand rows lost
+27579/(27579+553725)    # 4.7% of properties joined to vacantLand
 
 vacantLandProps <- propertiesData %>%
-  st_drop_geometry() %>%
   inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
-
 
 # save locally
 # saveRDS(vacantLandProps, file = "./local/vacantLandProps.rds")
+
 
 ```
 
@@ -891,25 +863,76 @@ vacantLandProps <- propertiesData %>%
 
 ```{r join permits to properties}
 
-# permitsData <---> propertiesData
+# permitsZoningData <---> propertiesData
 
-len(unique(permitsData$opa_account_num))
+len(unique(permitsZoningData$opa_account_num))
 
-table(unique(permitsData$opa_account_num) %in% unique(propertiesData$parcel_number))
-table(unique(propertiesData$parcel_number) %in% unique(permitsData$opa_account_num)) 
+table(unique(permitsZoningData$opa_account_num) %in% unique(propertiesData$parcel_number))
+table(unique(propertiesData$parcel_number) %in% unique(permitsZoningData$opa_account_num)) 
 
-540/(31466+540)         # 1.7%
-31466/(31466+549838)    # 5.4%
-
+540/(31466+540)         # 1.7% of permits rows lost
+31466/(31466+549838)    # 5.4% of properties joined to permits
 
 permitsProps <- propertiesData %>%
-  st_drop_geometry() %>%
-  inner_join(permitsData,  by = c('parcel_number'='opa_account_num'))
+  inner_join(st_drop_geometry(permitsZoningData),  by = c('parcel_number'='opa_account_num'))
 
 # save locally
 # saveRDS(permitsProps, file = "./local/permitsProps.rds")
 
+
+
+z <- vacantLandProps %>% left_join(., parcelsProps, by='parcel_number')
+
+??inner_join
+
 ```
+
+
+
+
+```{r permits map}
+
+# set up the fishnet bins to sort the permits into
+fishnet <- phlcounty %>%
+  st_make_grid(.,
+               cellsize = 250, 
+               square = TRUE) %>%
+  .[phlcounty] %>%                     # clip to Philadelphia County boundary
+  st_sf() %>%
+  mutate(uniqueID = rownames(.))
+
+
+permitStartDate <- as.Date.character('2017-01-01')
+permitEndDate <- as.Date.character('2017-04-01')
+
+
+permitsZoningProps <- 
+  permitsProps %>%
+  filter(permitissuedate > permitStartDate) %>%
+  filter(permitissuedate < permitEndDate)
+
+
+# add a value of 1 to each and join them to the fishnet
+permitsNet <-
+  dplyr::select(permitsZoningProps) %>%
+  mutate(countPermits = 1) %>%
+  aggregate(fishnet, sum) %>%                                                   # used as a spatial join that sums
+  mutate(countPermits = replace_na(countPermits, 0)) %>%
+  mutate(uniqueID = rownames(.)) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) # random cross validation ID (out of 100) for later use
+
+m(permitsNet, zcol='countPermits')
+
+```
+
+
+
+
+
+
+
+
+
 
 ### Delinquencies to properties
 
@@ -924,7 +947,6 @@ table(unique(propertiesData$parcel_number) %in% unique(delinquenciesData$opa_num
 
 2077/(70639+2077)       #  3%
 70639/(70639+510665)    # 12%
-
 
 initialDate = '2020-01-01'
 finalDate = '2021-01-01'
@@ -959,10 +981,11 @@ table(unique(propertiesData$parcel_number) %in% unique(transfersData$opa_account
 58427/(58427+522877)  # 10%
 
 transfersProps <- propertiesData %>%
-  inner_join(transfersData, by= c('parcel_number'='opa_account_num'))
-
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num')) %>%
+  
 # save locally
 #csaveRDS(transfersProps, file = "./local/transfersProps.rds")
+
 
 ```
 
@@ -975,10 +998,10 @@ sf::sf_use_s2(F)
 
 myTract <- phltracts %>%
   filter(GEOID ==	'42101009200') %>%
-  st_transform(st_crs(parcels))
+  st_transform(st_crs(phlcrs))
 
 myProperties <- propertiesData %>%
-  st_transform(st_crs(parcels)) %>%
+  st_transform(st_crs(phlcrs)) %>%
   st_filter(., myTract)
 
 myParcels <- parcelsData %>%
@@ -994,7 +1017,7 @@ myDelinquencies <- delinquenciesData %>%
   st_transform()
 
 myPermits <- permitsData %>%
-  st_transform(st_crs(parcels)) %>%
+  st_transform(st_crs(phlcrs)) %>%
   #filter(permittype == 'BUILDING') %>%
   st_filter(., myTract)
 
