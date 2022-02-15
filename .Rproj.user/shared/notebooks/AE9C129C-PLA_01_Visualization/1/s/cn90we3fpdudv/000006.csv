@@ -1,0 +1,5 @@
+"0","vacantLand <- left_join(., parcelProps %>% select(parcel_number, geometry), by=c('parcel_number'='parcel_number'))
+"
+"2","Error in left_join(., parcelProps %>% select(parcel_number, geometry),  : 
+  object '.' not found
+"
