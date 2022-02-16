@@ -1,9 +1,0 @@
-"0","ggmap(base_map) +
-  geom_sf(data=phlcounty, color=gillianpick[1], size=2, inherit.aes = FALSE) + 
-  geom_sf(data=vacantLandProps, aes(size=totalarea), color=gillianpick[2],
-          show.legend = ""point"", size = 1, inherit.aes = FALSE) +
-  coord_sf(crs = st_crs(4326)) +
-  mapTheme_ggplot()
-"
-"2","Coordinate system already present. Adding new coordinate system, which will replace the existing one.
-"

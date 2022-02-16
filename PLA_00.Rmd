@@ -194,8 +194,6 @@ delinquenciesData <- delinquencies %>%
   #filter(sheriff_sale == 'Y')
 
 # table(delinquenciesData$sheriff_sale)
-
-
 ```
 
 
@@ -262,7 +260,7 @@ propertiesVars <-
     #"quality_grade",                  # UNNECESSARY
     #"recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
     "registry_number",                # KEEP to JOIN
-    #"sale_date",                      # KEEP
+    "sale_date",                      # KEEP
     "sale_price",                     # KEEP
     #"separate_utilities",             # UNNECESSARY
     #"sewer",                          # UNNECESSARY
@@ -948,7 +946,7 @@ table(unique(propertiesData$parcel_number) %in% unique(delinquenciesData$opa_num
 2077/(70639+2077)       #  3%
 70639/(70639+510665)    # 12%
 
-initialDate = '2020-01-01'
+initialDate = '2017-01-01'
 finalDate = '2021-01-01'
 
 delinquenciesProps <- propertiesData %>%
@@ -959,8 +957,17 @@ delinquenciesProps <- propertiesData %>%
   filter(sale_date >= initialDate & sale_date < finalDate) %>%
   st_sf()
 
+delinquenciesProps_allYrs <- propertiesData %>%
+  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
+  #filter(category_code == 6) %>%
+  #filter(sheriff_sale == 'Y') %>%
+  #mutate(debtPercentage = total_due/market_value) %>%
+  st_sf()
+
 # save locally
 # saveRDS(delinquenciesProps, file = "./local/delinquenciesProps.rds")
+# Gillian's: saveRDS(delinquenciesProps, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+# saveRDS(delinquenciesProps_allYrs, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
 
 ```
 

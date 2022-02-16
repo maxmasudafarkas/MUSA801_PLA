@@ -26,6 +26,8 @@ library(gridExtra)
 library(kableExtra)
 library(ggplot2)
 library(basemaps)
+library(ggmap)
+library(viridis)
 
 # R options setup
 options(scipen = 999)
@@ -46,7 +48,9 @@ st_c <- st_coordinates
 setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
 
 # color scheme
-gillianpick <- c("#3f4238", "#b98b73")
+# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60")
+#               dark green, dark brown, highlight yellow
 ```
 
 # functions
@@ -54,26 +58,53 @@ gillianpick <- c("#3f4238", "#b98b73")
 # ggplot map theme for us to build on
 mapTheme_ggplot <- function() {
   theme(
-    rect = element_rect(fill = "transparent")
+    rect = element_rect(fill = "transparent") # this set the background transparent
     )
 }
+mapGuide_ggplot <- function() {
+  guides(
+    colour = guide_legend(override.aes = list(size=5)) # this set the size for the point on legend
+    ) 
+}
+
+chartTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent"), # this set the background transparent
+    axis.text = element_text(size=12),
+    axis.title.x = element_text(size=12),
+    axis.title.y = element_text(size=12),
+  )
+}
+
 
 # save ggplot map configurations
 mapSave_ggplot <- function(fileName) {
-  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), 
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
          plot = last_plot(), dpi = 300, 
          width = 8, height = 5, units = "in", bg = "transparent")
 }
+
+plotSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+
 ```
 
 
 # Read data that Adrian prepared
 ```{r}
+# joined data
 vacantLandProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/vacantLandProps.rds")
 parcelsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/parcelProps.rds")
 permitsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/permitsProps.rds")
 transfersProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps.rds")
 delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+
+# original data from APIs
+delinquenciesProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
 
 phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
 # get geometry for the county of Philadelphia
@@ -83,6 +114,18 @@ phlcounty <- tigris::counties(state = 42) %>%
   st_transform(st_crs(phlcrs))
 ```
 
+# fishnet
+```{r}
+fishnet <- phlcounty %>%
+  st_make_grid(.,
+               cellsize = 250, 
+               square = TRUE) %>%
+  .[phlcounty] %>%                     # clip to Philadelphia County boundary
+  st_sf() %>%
+  mutate(uniqueID = rownames(.))
+```
+
+
 # map of vacant properties
 ```{r}
 # base_map <- get_stamenmap(c(left = -75.34937, bottom = 39.84524, right = -74.92109, top = 40.17457),
@@ -91,12 +134,75 @@ base_map <- get_stamenmap(c(left = -75.54937, bottom = 39.84524, right = -74.821
                            maptype = "terrain-background") # rectangle (wider)
 
 ggmap(base_map) +
-  geom_sf(data=phlcounty, color=gillianpick[1], size=2, inherit.aes = FALSE) + 
-  geom_sf(data=vacantLandProps, aes(size=totalarea), color=gillianpick[2],
-          show.legend = "point", size = 1, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=vacantLandProps, color=gillianpick[2], size=0.01,
+           inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
   coord_sf(crs = st_crs(4326)) +
   mapTheme_ggplot()
   
 #mapSave_ggplot("vacantProperties")
+```
+
+# tax delinquent vacant properties
+```{r}
+# map vacant properties (points)
+delinquentVacantProps <- left_join(vacantLandProps, 
+                                   delinquenciesProps %>%
+                                     st_drop_geometry(.) %>%
+                                     mutate(delinquentStatus = 1), 
+                                   by="parcel_number") %>%
+  mutate(delinquentStatus = ifelse(is.na(delinquentStatus)==F, 1, 0))
+# how many vacant delinquent?
+num_delinquentVacant = sum(delinquentVacantProps$delinquentStatus, na.rm = T)
+share_delinquentVacant = num_delinquentVacant/length(unique(vacantLandProps$parcel_number))
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=delinquentVacantProps, 
+          aes(color=factor(delinquentStatus)), 
+          size = 0.01, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  scale_color_manual("delinquent", values= c(gillianpick[2], gillianpick[3]), labels= c("no", "yes")) +
+  mapGuide_ggplot() +
+  mapTheme_ggplot()
+#mapSave_ggplot("delinquentVacantProperties")
+
+
+# map vacant properties (fishnet)
+delinquentVacantNet <- delinquentVacantProps %>%
+  mutate(vacant = 1) %>%
+  select(delinquentStatus, vacant) %>%
+  aggregate(fishnet, sum) %>% 
+  mutate(countDelinquent = replace_na(delinquentStatus, 0),
+         vacant = replace_na(vacant, 0)) %>%
+  select(-delinquentStatus) %>%
+  mutate(uniqueID = rownames(.),) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T))
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=subset(delinquentVacantNet, vacant>0), aes(fill=countDelinquent), inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  scale_fill_viridis(name="delinquencies") +
+  coord_sf(crs = st_crs(4326)) 
+
+#mapSave_ggplot("delinquentVacantProperties_fishnet")
+
+# trend of vacancies
+tab_delinquenciesProps_byYr <- delinquenciesProps_allYrs %>%
+  group_by(oldest_year_owed) %>%
+  summarise(countProp = n()) %>%
+  st_drop_geometry()
+
+ggplot(tab_delinquenciesProps_byYr, aes(x=oldest_year_owed, y=countProp)) + 
+  geom_line(color=gillianpick[2], size=1.5) + 
+  geom_point(color=gillianpick[3], size=3) +
+  xlab("year") +
+  ylab("tax delinquent properties") +
+  chartTheme_ggplot()
+
+#plotSave_ggplot("delinquentTrend")
 ```
 
