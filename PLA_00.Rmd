@@ -91,7 +91,7 @@ phlcounty <- tigris::counties(state = 42) %>%
 
 ```{r supply-side data}
 
-# Client-provided US Bank Liens Data (as 'US Bank sharp')
+# Client-provided US Bank Liens Data (as 'US Bank sharp') - 2019 2020
 # These are Liens that have been sold - UPDATE?
 usBankLiens_0 <- read.csv("./data/usBank.csv") %>%
   dplyr::select(-X) %>%
@@ -114,8 +114,6 @@ usBankLiens_NA <- read.csv("./data/usBankLiens_latlonNA.csv") %>%
 
 # visualize liens locations
 m(usBankLiens_1, zcol='CALC_TOTAL')
-
-
 ```
 
 
@@ -677,7 +675,7 @@ transfersVars <-
 
 # Data wrangling
 transfersData <- transfers %>%
-  filter(display_date > initialDate) %>%
+  #filter(display_date > initialDate) %>%
   dplyr::select(transfersVars) %>%
   rename('address' = street_address) %>%
   filter(!is.na(opa_account_num)) %>%
@@ -689,7 +687,6 @@ transfersData <- transfers %>%
                               'DEED SHERIFF'))
   
 table(transfers$document_type)
-
 
 ```
 
@@ -976,7 +973,7 @@ delinquenciesProps_allYrs <- propertiesData %>%
 
 
 ```{r join transfers to properties}
-
+# has data for sheriff sale up until 07/07/2021
 # propertiesData <---> transfersData
 
 len(unique(transfersData$opa_account_num))
@@ -988,12 +985,12 @@ table(unique(propertiesData$parcel_number) %in% unique(transfersData$opa_account
 58427/(58427+522877)  # 10%
 
 transfersProps <- propertiesData %>%
-  inner_join(transfersData, by= c('parcel_number'='opa_account_num')) %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num')) #%>%
   
 # save locally
-#csaveRDS(transfersProps, file = "./local/transfersProps.rds")
-
-
+# saveRDS(transfersProps, file = "./local/transfersProps.rds")
+# Gillian's all years
+# saveRDS(transfersProps, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
 ```
 
 ### Look up by census tract

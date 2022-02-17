@@ -49,8 +49,8 @@ setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
 
 # color scheme
 # https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
-gillianpick <- c("#3f4238", "#b98b73", "#f6bd60")
-#               dark green, dark brown, highlight yellow
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
 ```
 
 # functions
@@ -84,7 +84,7 @@ mapSave_ggplot <- function(fileName) {
          width = 8, height = 5, units = "in", bg = "transparent")
 }
 
-plotSave_ggplot <- function(fileName) {
+chartSave_ggplot <- function(fileName) {
   ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
          plot = last_plot(), dpi = 300, 
          width = 8, height = 5, units = "in", bg = "transparent")
@@ -105,6 +105,7 @@ delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data
 
 # original data from APIs
 delinquenciesProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
+transfersProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
 
 phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
 # get geometry for the county of Philadelphia
@@ -148,11 +149,14 @@ ggmap(base_map) +
 ```{r}
 # map vacant properties (points)
 delinquentVacantProps <- left_join(vacantLandProps, 
-                                   delinquenciesProps %>%
+                                   delinquenciesProps_allYrs %>%
                                      st_drop_geometry(.) %>%
                                      mutate(delinquentStatus = 1), 
                                    by="parcel_number") %>%
-  mutate(delinquentStatus = ifelse(is.na(delinquentStatus)==F, 1, 0))
+  mutate(delinquentStatus = ifelse(is.na(delinquentStatus)==F, 1, 0)) %>%
+  mutate(delinquentType = ifelse(liens_sold_1990s==TRUE, 2, delinquentStatus), 
+         # delinquent type: 0 not delinquent, 1 delinquent, 2 us bank
+         delinquentType = replace_na(delinquentType, 0))
 # how many vacant delinquent?
 num_delinquentVacant = sum(delinquentVacantProps$delinquentStatus, na.rm = T)
 share_delinquentVacant = num_delinquentVacant/length(unique(vacantLandProps$parcel_number))
@@ -183,26 +187,195 @@ delinquentVacantNet <- delinquentVacantProps %>%
 
 ggmap(base_map) +
   geom_sf(data=phlcounty, inherit.aes = FALSE) + 
-  geom_sf(data=subset(delinquentVacantNet, vacant>0), aes(fill=countDelinquent), inherit.aes = FALSE) +
+  geom_sf(data=subset(delinquentVacantNet, vacant>0), aes(fill=countDelinquent), color=NA, inherit.aes = FALSE) +
   geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
   scale_fill_viridis(name="delinquencies") +
   coord_sf(crs = st_crs(4326)) 
 
 #mapSave_ggplot("delinquentVacantProperties_fishnet")
 
-# trend of vacancies
-tab_delinquenciesProps_byYr <- delinquenciesProps_allYrs %>%
+# trend of delinquencies # whether it is vacant or not, doesn't matter
+tab_delinquenciesProps_byYr <- delinquenciesProps %>%
   group_by(oldest_year_owed) %>%
   summarise(countProp = n()) %>%
   st_drop_geometry()
 
 ggplot(tab_delinquenciesProps_byYr, aes(x=oldest_year_owed, y=countProp)) + 
   geom_line(color=gillianpick[2], size=1.5) + 
-  geom_point(color=gillianpick[3], size=3) +
+  geom_point(color=gillianpick[3], size=2.5) +
   xlab("year") +
   ylab("tax delinquent properties") +
   chartTheme_ggplot()
 
-#plotSave_ggplot("delinquentTrend")
+#chartSave_ggplot("delinquentTrend")
+
+# trend of delinquencies of vacant properties
+tab_delinquenciesProps_byYr <- delinquentVacantProps %>%
+  group_by(oldest_year_owed) %>%
+  summarise(countProp = n()) %>%
+  st_drop_geometry()
+
+ggplot(tab_delinquenciesProps_byYr, aes(x=oldest_year_owed, y=countProp)) + 
+  geom_line(color=gillianpick[2], size=1.5) + 
+  geom_point(color=gillianpick[3], size=2.5) +
+  xlab("year") +
+  ylab("tax delinquent vacant properties") +
+  ylim(c(0, 1600)) +
+  chartTheme_ggplot()
+
+#chartSave_ggplot("delinquentVacantTrend")
+```
+
+# US bank liens
+```{r}
+tab_usbanklienProps <- delinquentVacantProps %>%
+  filter(delinquentStatus==1) %>%
+  group_by(liens_sold_1990s) %>%
+  summarise(countUSBANK = n()) %>%
+  st_drop_geometry()
+
+ggplot(tab_usbanklienProps, aes(liens_sold_1990s, countUSBANK, fill=factor(liens_sold_1990s))) + 
+  geom_bar(position = "dodge", stat = "summary", fun = "mean") +
+  scale_fill_manual(values = c(gillianpick[3], gillianpick[4]),
+                    name="") +
+  scale_x_discrete(name ="US bank lien", 
+                    labels=c("no", "yes")) +
+  ylab("amount") +
+  theme(legend.position="none") +
+  chartTheme_ggplot()
+
+#chartSave_ggplot("usbankBar")
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=delinquentVacantProps, 
+          aes(color=factor(delinquentType)), 
+          size = 0.01, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  scale_color_manual("category", values= c(gillianpick[2], gillianpick[3], gillianpick[4]), labels= c("vacant", "vacant and delinquent", "vacant, delinquent, us bank lien")) +
+  mapGuide_ggplot() +
+  mapTheme_ggplot()
+#mapSave_ggplot("usbankVacantProperties")
+
+usbankVacantNet <- delinquentVacantProps %>%
+  mutate(vacant = 1,
+         countUSbank = ifelse(liens_sold_1990s==TRUE, 1, 0)) %>%
+  select(countUSbank, vacant) %>%
+  aggregate(fishnet, sum) %>%
+  mutate(uniqueID = rownames(.),
+         countUSbank = replace_na(countUSbank, 0),
+         vacant = replace_na(vacant, 0)) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T))
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=subset(usbankVacantNet, vacant>0), aes(fill=countUSbank), color=NA, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  scale_fill_viridis(name="us bank liens") +
+  coord_sf(crs = st_crs(4326)) 
+
+#mapSave_ggplot("usBankVacantProperties_fishnet")
+```
+
+# sheriff's sale
+```{r}
+# note: there are duplicates after join. Not sure how to only keep sheriff's sales if duplicated. From 27579 to 29624.
+# 
+transfersProps <- transfersProps_allYrs
+transfersProps <- distinct(transfersProps, parcel_number, document_type, .keep_all = TRUE)
+delinquentVacantTransferProps <- left_join(delinquentVacantProps, 
+                                           transfersProps %>%
+                                             st_drop_geometry(),
+                                           by="parcel_number")
+
+# join sheriff's sales 2021-22 data to vacantLandProps
+sheriffSale2122 <- read_csv('C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffSale2122.csv') 
+
+sheriffSale2122 <- distinct(sheriffSale2122, OPA, .keep_all=TRUE) # remove duplicates
+
+# join all sheriff sales info we have together
+delinquentVacantTransferProps  <- merge(delinquentVacantTransferProps, sheriffSale2122, 
+                                        by.x="parcel_number", by.y="OPA", all.x=TRUE, no.dups=TRUE) 
+# update "document_type" to include 2021 and 2022 sheriff sales
+delinquentVacantTransferProps <- delinquentVacantTransferProps %>%
+  mutate(document_type=ifelse(is.na(Status)==FALSE, "DEED SHERIFF", document_type))
+
+# create a new variable that record sheriff sales from all sources
+delinquentVacantTransferProps <- delinquentVacantTransferProps %>%
+  mutate(new_sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, 0), #| sheriff_sale=="Y"
+         new_sheriff_sale = replace_na(new_sheriff_sale, 0),
+         sheriff_sale_year = year(strptime(`Bidding Open Date/Time`, format='%m/%j/%Y %I:%M %p')),
+         sheriff_sale_year = ifelse(is.na(sheriff_sale_year)==T, year(as.Date(display_date)), sheriff_sale_year)) # transfer data
+
+
+# look at what's it like with all information combined
+check_sheriff <- delinquentVacantTransferProps %>%
+  #filter(document_type=="DEED SHERIFF") %>%
+  select(parcel_number, document_type, sheriff_sale, delinquentType, `Bidding Open Date/Time`, sheriff_sale_year) %>%
+  st_drop_geometry() %>%
+  arrange(parcel_number, document_type) #next step: level document type to make sheriff sale appear first
+length(unique(check_sheriff$parcel_number))
+
+check_duplicate <-
+  spread(check_sheriff, key="document_type", value="sheriff_sale_year") %>%
+  mutate(precede = `DEED SHERIFF` < `DEED`)
+                                  
+check_sheriff_sale_and_usbank <- delinquentVacantTransferProps %>% # 189 for 2017 and onwards, 213 for all years
+  filter(sheriff_sale=="Y"|document_type=="DEED SHERIFF", liens_sold_1990s==TRUE)
+
+sheriffSale <- transfersProps %>%
+  filter(document_type=="DEED SHERIFF") 
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=subset(delinquentVacantTransferProps, delinquentStatus==1), 
+          aes(color=factor(new_sheriff_sale)), 
+          size = 0.01, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  scale_color_manual("category", values= c(gillianpick[3], gillianpick[5]), labels= c("vacant and delinquent", "vacant, delinquent, \nsheriff's sale")) +
+  mapGuide_ggplot() +
+  mapTheme_ggplot()
+#mapSave_ggplot("sheriffSaleProperties_allYrs")
+
+# trend of sheriff's sale 
+# calculate how many sheriff sale for delinquent vacant properties 
+tab_sheriffSaleProps <- delinquentVacantTransferProps %>%
+  #filter(delinquentStatus==1) %>%
+  mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
+         sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
+         sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
+         sheriff_sale = replace_na(sheriff_sale, 0)) %>%
+  group_by(sheriff_sale) %>%
+  summarise(countSheriffSale = n()) %>%
+  st_drop_geometry()
+
+tab_sheriffSaleProps_byYr <- delinquentVacantTransferProps %>%
+  filter(delinquentStatus==1) %>%
+  mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
+         sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
+         sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
+         sheriff_sale = replace_na(sheriff_sale, 0)) %>%
+  group_by(sheriff_sale, sheriff_sale_year) %>%
+  summarise(countSheriffSale = n()) %>%
+  st_drop_geometry() %>%
+  filter(sheriff_sale==1,
+         is.na(sheriff_sale_year)==FALSE)
+
+# chart
+ggplot(tab_sheriffSaleProps_byYr, aes(x=sheriff_sale_year, y=countSheriffSale)) + 
+  geom_line(color=gillianpick[2], size=1.5) + 
+  geom_point(color=gillianpick[5], size=2.5) +
+  xlab("year") +
+  ylab("sheriff's sales") +
+  chartTheme_ggplot()
+
+#chartSave_ggplot("sheriffSaleTrend_allYrs")
+```
+
+# Construction
+```{r}
+
 ```
 
