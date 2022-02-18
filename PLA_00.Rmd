@@ -602,7 +602,19 @@ as.data.frame(table(permitsBuildingData$typeofwork))
 # quick map plot
 # m(permitsData, zcol='permittype')
 
+# Data wrangling THREE
+# Filter data with zoning permits and typeofwork relevant to our use case
+# across all years
+zoningPermitsProps_allYrs <- permits %>%
+  dplyr::select(varsPermits) %>%
+  # filter(permitissuedate > initialDate) %>% # SET start date
+  filter(permittype %in% permitZoningCats,
+         typeofwork %in% permitTypeOfWorkCats) %>%
+  filter(!is.na(lat), !is.na(lng)) %>% 
+  st_as_sf(coords = c("lng","lat"), crs = phlcrs)
 
+# save locally
+# Gillian's: saveRDS(zoningPermitsProps_allYrs, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
 ```
 
 

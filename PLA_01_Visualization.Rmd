@@ -103,9 +103,11 @@ permitsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/l
 transfersProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps.rds")
 delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
 
-# original data from APIs
+# joined data created by Gillian
 delinquenciesProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
 transfersProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
+zoningPermitsProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
+
 
 phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
 # get geometry for the county of Philadelphia
@@ -280,57 +282,63 @@ ggmap(base_map) +
 
 # sheriff's sale
 ```{r}
-# note: there are duplicates after join. Not sure how to only keep sheriff's sales if duplicated. From 27579 to 29624.
-# 
-transfersProps <- transfersProps_allYrs
-transfersProps <- distinct(transfersProps, parcel_number, document_type, .keep_all = TRUE)
+# if a parcel_number has multiple deed, I manipulated data to shift deed sheriff first
+# so distinct() will grab deed sheriff and neglect others
+transfersProps <- transfersProps_allYrs %>% 
+    mutate(document_type=factor(document_type, labels(c("DEED SHERIFF"=1, "DEED"=2, "DEED MISCELLANEOUS"=3, "DEED OF CONDEMNATION"=4,"DEED LAND BANK"=5, "DEED MISCELLANEOUS TAXABLE"=6)))) %>%
+  arrange(parcel_number, document_type) 
+transfersProps <- transfersProps %>%
+  distinct(parcel_number, .keep_all = TRUE)
+
+sheriffSale <- transfersProps %>%
+  filter(document_type=="DEED SHERIFF") 
+
+# join all sheriff sales info we have together
+## sheriff sales data from transfers
 delinquentVacantTransferProps <- left_join(delinquentVacantProps, 
                                            transfersProps %>%
                                              st_drop_geometry(),
-                                           by="parcel_number")
+                                           by="parcel_number") %>%
+  distinct(parcel_number, .keep_all = TRUE)
 
-# join sheriff's sales 2021-22 data to vacantLandProps
+# sheriff's sales 2021-22 from client
 sheriffSale2122 <- read_csv('C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffSale2122.csv') 
-
 sheriffSale2122 <- distinct(sheriffSale2122, OPA, .keep_all=TRUE) # remove duplicates
-
-# join all sheriff sales info we have together
 delinquentVacantTransferProps  <- merge(delinquentVacantTransferProps, sheriffSale2122, 
                                         by.x="parcel_number", by.y="OPA", all.x=TRUE, no.dups=TRUE) 
-# update "document_type" to include 2021 and 2022 sheriff sales
-delinquentVacantTransferProps <- delinquentVacantTransferProps %>%
-  mutate(document_type=ifelse(is.na(Status)==FALSE, "DEED SHERIFF", document_type))
 
 # create a new variable that record sheriff sales from all sources
 delinquentVacantTransferProps <- delinquentVacantTransferProps %>%
-  mutate(new_sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, 0), #| sheriff_sale=="Y"
-         new_sheriff_sale = replace_na(new_sheriff_sale, 0),
-         sheriff_sale_year = year(strptime(`Bidding Open Date/Time`, format='%m/%j/%Y %I:%M %p')),
-         sheriff_sale_year = ifelse(is.na(sheriff_sale_year)==T, year(as.Date(display_date)), sheriff_sale_year)) # transfer data
+  mutate(past_sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, 0),   #-> (only past records)
+         past_sheriff_sale = replace_na(past_sheriff_sale, 0),
+         scheduled_sheriff_sale = ifelse(document_type=="DEED SHERIFF"|is.na(Status)==F|sheriff_sale=="Y", 1, 0),   #-> (only future records)
+         scheduled_sheriff_sale = replace_na(scheduled_sheriff_sale, 0),
+         all_sheriff_sale = ifelse(past_sheriff_sale==1 | scheduled_sheriff_sale==1, 1, 0),
+         sheriff_sale_year = year(as.Date(display_date)), # transfer data
+         # sheriff_sale_year = ifelse(sheriff_sale=="Y", year(as.Date(sale_date.x)), NA_character_), # delinquency data
+         # sheriff_sale_year = ifelse(is.na(sheriff_sale_year)==T, year(strptime(`Bidding Open Date/Time`, format='%m/%j/%Y %I:%M %p')), sheriff_sale_year) # 2122 data
+        ) 
 
 
 # look at what's it like with all information combined
 check_sheriff <- delinquentVacantTransferProps %>%
   #filter(document_type=="DEED SHERIFF") %>%
-  select(parcel_number, document_type, sheriff_sale, delinquentType, `Bidding Open Date/Time`, sheriff_sale_year) %>%
-  st_drop_geometry() %>%
-  arrange(parcel_number, document_type) #next step: level document type to make sheriff sale appear first
-length(unique(check_sheriff$parcel_number))
-
-check_duplicate <-
-  spread(check_sheriff, key="document_type", value="sheriff_sale_year") %>%
-  mutate(precede = `DEED SHERIFF` < `DEED`)
+  select(parcel_number, past_sheriff_sale, sheriff_sale_year, document_type, sheriff_sale, Status, delinquentType, `Bidding Open Date/Time`, sheriff_sale_year, sale_date.x) %>%
+  st_drop_geometry() 
                                   
-check_sheriff_sale_and_usbank <- delinquentVacantTransferProps %>% # 189 for 2017 and onwards, 213 for all years
-  filter(sheriff_sale=="Y"|document_type=="DEED SHERIFF", liens_sold_1990s==TRUE)
+check_sheriff_sale_and_usbank <- delinquentVacantTransferProps %>% # for past and scheduled sales
+  filter(sheriff_sale=="Y"|past_sheriff_sale==1|is.na(Status)==F, liens_sold_1990s==TRUE)
+# 189 for 2017 and onwards, 213 for all years when included sheriff sale from delinquency data. 
+# 115 when excluded sheriff sale from delinquency data
 
-sheriffSale <- transfersProps %>%
-  filter(document_type=="DEED SHERIFF") 
+check_sheriff_sale_and_usbank <- delinquentVacantTransferProps %>% # for past sales
+  filter(past_sheriff_sale==1, liens_sold_1990s==TRUE)
+# 98 for all years
 
 ggmap(base_map) +
   geom_sf(data=phlcounty, inherit.aes = FALSE) + 
   geom_sf(data=subset(delinquentVacantTransferProps, delinquentStatus==1), 
-          aes(color=factor(new_sheriff_sale)), 
+          aes(color=factor(all_sheriff_sale)), 
           size = 0.01, inherit.aes = FALSE) +
   geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
   coord_sf(crs = st_crs(4326)) +
@@ -343,39 +351,126 @@ ggmap(base_map) +
 # calculate how many sheriff sale for delinquent vacant properties 
 tab_sheriffSaleProps <- delinquentVacantTransferProps %>%
   #filter(delinquentStatus==1) %>%
-  mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
-         sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
-         sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
-         sheriff_sale = replace_na(sheriff_sale, 0)) %>%
-  group_by(sheriff_sale) %>%
+  #mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
+         # sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
+         # sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
+         # sheriff_sale = replace_na(sheriff_sale, 0)) %>%
+  group_by(all_sheriff_sale) %>%
   summarise(countSheriffSale = n()) %>%
   st_drop_geometry()
 
 tab_sheriffSaleProps_byYr <- delinquentVacantTransferProps %>%
   filter(delinquentStatus==1) %>%
-  mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
-         sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
-         sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
-         sheriff_sale = replace_na(sheriff_sale, 0)) %>%
-  group_by(sheriff_sale, sheriff_sale_year) %>%
+  # mutate(sheriff_sale = ifelse(document_type=="DEED SHERIFF", 1, sheriff_sale),
+  #        sheriff_sale = ifelse(sheriff_sale=="Y", 1, sheriff_sale),
+  #        sheriff_sale = ifelse(sheriff_sale=="N", 0, sheriff_sale),
+  #        sheriff_sale = replace_na(sheriff_sale, 0)) %>%
+  group_by(past_sheriff_sale, sheriff_sale_year) %>%
   summarise(countSheriffSale = n()) %>%
   st_drop_geometry() %>%
-  filter(sheriff_sale==1,
-         is.na(sheriff_sale_year)==FALSE)
+  filter(past_sheriff_sale==1)
 
 # chart
-ggplot(tab_sheriffSaleProps_byYr, aes(x=sheriff_sale_year, y=countSheriffSale)) + 
+ggplot(tab_sheriffSaleProps_byYr, aes(x=as.numeric(sheriff_sale_year), y=countSheriffSale)) + 
+  geom_vline(xintercept = 2017, color = "#f9c74f", size=1) +
   geom_line(color=gillianpick[2], size=1.5) + 
   geom_point(color=gillianpick[5], size=2.5) +
   xlab("year") +
+  scale_x_continuous(breaks=seq(from=1999,
+                                to=2021,
+                                by=2),
+                     limits=c(1999, 2021)) +
   ylab("sheriff's sales") +
+  geom_text(x = 2017, y=300, label="", angle = 0) +
   chartTheme_ggplot()
 
-#chartSave_ggplot("sheriffSaleTrend_allYrs")
+#chartSave_ggplot("sheriffSaleTrend")
 ```
 
-# Construction
+# Construction permits
+## basic map and time trend plot
 ```{r}
+delinquentVacantTransferConstructionProps <- left_join(delinquentVacantTransferProps, 
+                                           zoningPermitsProps_allYrs %>%
+                                             st_drop_geometry(),
+                                           by=c("parcel_number"="opa_account_num")) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+  
+# check_dupPermit <- delinquentVacantTransferConstructionProps %>%
+#   filter(duplicated(parcel_number)) %>%
+#   select(parcel_number, typeofwork, permitissuedate)
 
+tab_permit_byYr <- delinquentVacantTransferConstructionProps %>%
+  filter(is.na(permittype)==FALSE) %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tab_permitAll_byYr <- zoningPermitsProps_allYrs %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tab_permitBoth_byYr <- merge(tab_permit_byYr, tab_permitAll_byYr, by="year(permitissuedate)") %>%
+  select(1,3,5) 
+colnames(tab_permitBoth_byYr) <- c("year", "permitOnVacant", "permitPhilly")
+tab_permitBoth_byYr <- tab_permitBoth_byYr %>%
+  gather(key="variable", value="value", -year)
+
+# map
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=delinquentVacantTransferConstructionProps, 
+          aes(color=factor(is.na(permittype))), 
+          size = 0.01, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  scale_color_manual("permits indicative of development", values= c(gillianpick[3], gillianpick[5]), labels= c("yes", "no")) +
+  mapGuide_ggplot() +
+  mapTheme_ggplot()
+#mapSave_ggplot("permits_pts")
+
+# chart
+ggplot(data=tab_permitBoth_byYr, aes(x=year, y=value)) + 
+  geom_line(aes(color=variable), size=1.5) + 
+  geom_point(color=gillianpick[5], size=2.5) +
+  # geom_line(data=tab_permit_byYr, aes(x=as.numeric(`year(permitissuedate)`), y=countPermit), color=gillianpick[2], size=1.5, linetype = variable) + 
+  # geom_point(data=tab_permit_byYr, aes(x=as.numeric(`year(permitissuedate)`), y=countPermit), color=gillianpick[5], size=2.5) +
+  xlab("year") +
+  scale_x_continuous(breaks=seq(from=2005,
+                                to=2025,
+                                by=2)) +
+  ylab("permits indicative of development") +
+  scale_color_manual(values = c(gillianpick[2], gillianpick[3]),
+                     labels = c("Vacant Sites", "Philadelphia"),
+                     name="legend") +
+  chartTheme_ggplot()
+
+#chartSave_ggplot("permitsTrend")
+```
+
+## heat map
+```{r}
+# map vacant properties (fishnet)
+zoningPermitsNet <-
+  dplyr::select(zoningPermitsProps_allYrs) %>%
+  st_set_crs(4319) %>%
+  st_transform(., st_crs(phlcrs)) %>%
+  mutate(countPermits = 1) %>%
+  aggregate(fishnet, sum) %>%                                                   # used as a spatial join that sums
+  mutate(countPermits = replace_na(countPermits, 0)) %>%
+  mutate(uniqueID = rownames(.)) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T))
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=subset(zoningPermitsNet, countPermits>0), aes(fill=countPermits), color=NA, inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  geom_sf(data=vacantLandProps, color=gillianpick[2], size=0.01, alpha=0.1,
+         inherit.aes = FALSE) +
+  scale_fill_viridis(name="permits") +
+  coord_sf(crs = st_crs(4326))
+
+#mapSave_ggplot("permits_vacantProp_overlay")
 ```
 
