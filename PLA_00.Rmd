@@ -91,7 +91,7 @@ phlcounty <- tigris::counties(state = 42) %>%
 
 ```{r supply-side data}
 
-# Client-provided US Bank Liens Data (as 'US Bank sharp')
+# Client-provided US Bank Liens Data (as 'US Bank sharp') - 2019 2020
 # These are Liens that have been sold - UPDATE?
 usBankLiens_0 <- read.csv("./data/usBank.csv") %>%
   dplyr::select(-X) %>%
@@ -114,8 +114,6 @@ usBankLiens_NA <- read.csv("./data/usBankLiens_latlonNA.csv") %>%
 
 # visualize liens locations
 m(usBankLiens_1, zcol='CALC_TOTAL')
-
-
 ```
 
 
@@ -194,8 +192,6 @@ delinquenciesData <- delinquencies %>%
   #filter(sheriff_sale == 'Y')
 
 # table(delinquenciesData$sheriff_sale)
-
-
 ```
 
 
@@ -262,7 +258,7 @@ propertiesVars <-
     #"quality_grade",                  # UNNECESSARY
     #"recording_date",                 # KEEP? -----------------------------------date the deed was presented to records.
     "registry_number",                # KEEP to JOIN
-    #"sale_date",                      # KEEP
+    "sale_date",                      # KEEP
     "sale_price",                     # KEEP
     #"separate_utilities",             # UNNECESSARY
     #"sewer",                          # UNNECESSARY
@@ -606,7 +602,19 @@ as.data.frame(table(permitsBuildingData$typeofwork))
 # quick map plot
 # m(permitsData, zcol='permittype')
 
+# Data wrangling THREE
+# Filter data with zoning permits and typeofwork relevant to our use case
+# across all years
+zoningPermitsProps_allYrs <- permits %>%
+  dplyr::select(varsPermits) %>%
+  # filter(permitissuedate > initialDate) %>% # SET start date
+  filter(permittype %in% permitZoningCats,
+         typeofwork %in% permitTypeOfWorkCats) %>%
+  filter(!is.na(lat), !is.na(lng)) %>% 
+  st_as_sf(coords = c("lng","lat"), crs = phlcrs)
 
+# save locally
+# Gillian's: saveRDS(zoningPermitsProps_allYrs, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
 ```
 
 
@@ -679,7 +687,7 @@ transfersVars <-
 
 # Data wrangling
 transfersData <- transfers %>%
-  filter(display_date > initialDate) %>%
+  #filter(display_date > initialDate) %>%
   dplyr::select(transfersVars) %>%
   rename('address' = street_address) %>%
   filter(!is.na(opa_account_num)) %>%
@@ -691,7 +699,6 @@ transfersData <- transfers %>%
                               'DEED SHERIFF'))
   
 table(transfers$document_type)
-
 
 ```
 
@@ -948,7 +955,7 @@ table(unique(propertiesData$parcel_number) %in% unique(delinquenciesData$opa_num
 2077/(70639+2077)       #  3%
 70639/(70639+510665)    # 12%
 
-initialDate = '2020-01-01'
+initialDate = '2017-01-01'
 finalDate = '2021-01-01'
 
 delinquenciesProps <- propertiesData %>%
@@ -959,8 +966,17 @@ delinquenciesProps <- propertiesData %>%
   filter(sale_date >= initialDate & sale_date < finalDate) %>%
   st_sf()
 
+delinquenciesProps_allYrs <- propertiesData %>%
+  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
+  #filter(category_code == 6) %>%
+  #filter(sheriff_sale == 'Y') %>%
+  #mutate(debtPercentage = total_due/market_value) %>%
+  st_sf()
+
 # save locally
 # saveRDS(delinquenciesProps, file = "./local/delinquenciesProps.rds")
+# Gillian's: saveRDS(delinquenciesProps, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+# saveRDS(delinquenciesProps_allYrs, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
 
 ```
 
@@ -969,7 +985,7 @@ delinquenciesProps <- propertiesData %>%
 
 
 ```{r join transfers to properties}
-
+# has data for sheriff sale up until 07/07/2021
 # propertiesData <---> transfersData
 
 len(unique(transfersData$opa_account_num))
@@ -981,12 +997,12 @@ table(unique(propertiesData$parcel_number) %in% unique(transfersData$opa_account
 58427/(58427+522877)  # 10%
 
 transfersProps <- propertiesData %>%
-  inner_join(transfersData, by= c('parcel_number'='opa_account_num')) %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num')) #%>%
   
 # save locally
-#csaveRDS(transfersProps, file = "./local/transfersProps.rds")
-
-
+# saveRDS(transfersProps, file = "./local/transfersProps.rds")
+# Gillian's all years
+# saveRDS(transfersProps, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
 ```
 
 ### Look up by census tract
