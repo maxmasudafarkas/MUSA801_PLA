@@ -14,7 +14,6 @@ output:
 
 Smart Cities Practicum
 
-## Introduction
 
 
 ```{r setup, include=FALSE}
@@ -59,69 +58,60 @@ len <- length
 st_c <- st_coordinates
 
 
-# Aesthetics
+# Aesthetic settings
 
-colors <- c('#222222','#eeeeee')
-palette <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+colors <- c('#222222',
+            '#eeeeee')
 
-
-```
-
-```{r gillian settings}
-
-# color scheme
-# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
-
-#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
-
-
-# ggplot map theme for us to build on
-mapTheme_ggplot <- function() {
-  theme(
-    rect = element_rect(fill = "transparent") # this set the background transparent
-    )
-}
-
-
-mapGuide_ggplot <- function() {
-  guides(
-    colour = guide_legend(override.aes = list(size=5)) # this set the size for the point on legend
-    ) 
-}
-
-chartTheme_ggplot <- function() {
-  theme(
-    rect = element_rect(fill = "transparent"), # this set the background transparent
-    axis.text = element_text(size=12),
-    axis.title.x = element_text(size=12),
-    axis.title.y = element_text(size=12),
-  )
-}
-
-
-# save ggplot map configurations
-mapSave_ggplot <- function(fileName) {
-  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
-         plot = last_plot(), dpi = 300, 
-         width = 8, height = 5, units = "in", bg = "transparent")
-}
-
-chartSave_ggplot <- function(fileName) {
-  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
-         plot = last_plot(), dpi = 300, 
-         width = 8, height = 5, units = "in", bg = "transparent")
-}
-
+palette <- c("#676767",
+             "#18b6c4",   # properties
+             "#18c493",   # vacantLots
+             "#f7c457",   # delinquencies
+             "#f79c57",   # us bank liens
+             "#f76957")   # sheriff sales
 
 ```
 
 
+## Introduction
 
-## Base data
 
-### A. Geographic boundaries
+When life hands you a vacant lot, make a garden.
+
+
+Such has been the philosophy of the enterprising residents of Philadelphia, a city that, like many in the United States, is home to thousands of properties that lie vacant in neighborhoods from Kensington to West Philadelphia. Rather than let them sit idle, Philadelphians have taken it upon themselves to tend to these lots as their own, converting them into cherished public assets. These properties come in all shapes and sizes, from small side yards to sprawling [community gardens](https://iglesiasgardens.com/) that span across multiple parcels.
+
+
+Recently, however, a threat has emerged that could result in the sale of scores of these vacant properties.
+
+
+The City of Philadelphia has been foreclosing on vacant properties in bulk to recover delinquent taxes. Following foreclosure, the City will initiate a forced sale through a public auction known as a sheriff's sale, transferring the property to the highest bidder. Neither the original owner nor the neighbors who have cared for the property in the owner's absence can stop such a sale once it's underway.
+
+
+As if that were not enough, vacant lots in Philadelphia face an additional threat. In the late 1990's, the City of Philadelphia sold over 30,000 tax liens to U.S. Bank, a private financial institution, in an effort to raise funds for public education. (This effort proved largely [unsuccessful](https://controller.phila.gov/wp-content/uploads/2018/06/DelinquentRealEstateTaxes_November2013.pdf#page=20).) As a result, today over two thousand vacant lots in Philadelphia are encumbered by liens owned by U.S. Bank, entitling the bank unilaterally to foreclose on those properties, much like the City.
+
+
+In light of these trends, neighbors and communities are rightly concerned that they may lose properties that, for years, have constructively been theirs. But there is reason for hope. 
+
+
+A range of legal and policy options may be available to these stakeholders depending on their specific circumstances. Advocacy [efforts](https://www.pubintlaw.org/cases-and-projects/our-testimony-on-us-bank-liens-and-displacement-in-philadelphia/) are currently underway to halt sheriff's sales for certain classes of vacant lots. Some policy solutions already exist, especially for vacant lots that are [City-owned](https://phdcphila.org/land/buy-land/side-or-rear-yards/). In some cases, stakeholders may even have legal rights: Neighbors who have tended to vacant lots adjoining their properties may have a path to ownership through a legal doctrine known as [adverse possession](https://www.law.cornell.edu/wex/adverse_possession).
+
+
+A variety of grassroots and legal advocacy organizations have taken up the mantle to explore these options, and more, to ensure that vacant lots remain in the care of the neighbors and communities who have invested in them for years. In collaboration with Philadelphia Legal Assistance, we are thus creating a web app to help residents, policymakers, and members of the public to understand the scope of this problem. The app will be designed to accomplish two, principal aims: (1) to visualize and explore the full portfolio of vacant properties in Philadelphia; and (2) to predict and rank which are under the greatest threat of development.
+
+
+---
+
+
+
+## Exploratory Analysis
+
+To understand the scale of the challenges facing vacant properties in Philadelphia, we visualize some of the key datasets pertaining to those properties.
+
 
 ```{r data: base geometry}
+
+### A. Geographic boundaries
 
 # set CRS to Pennsylvania South NAD83 in meters
 phlcrs <- 'EPSG:32129'
@@ -154,15 +144,8 @@ fishnet <- phlcounty %>%
 phlFishnet <- fishnet %>%
   st_union()
 
-```
-
-
-
-
 
 ### B. Demographic
-
-```{r data: ACS demographic}
 
 # Get API key loaded locally
 censusKey <-  read_file('../censusapikey.R')
@@ -220,26 +203,15 @@ majminFishnet <-
   st_union()
 
 
-```
-
-
-
-
-
-
-
 ### C. Properties
 
-[source]('https://www.opendataphilly.org/dataset/opa-property-assessments')
-
-
-```{r data: OPA properties}
+# [source]('https://www.opendataphilly.org/dataset/opa-property-assessments')
 
 # Load properties from 1999 until now from the Office of Property Assessment.
 # properties <- read_csv('https://opendata-downloads.s3.amazonaws.com/opa_properties_public.csv')
 
 # OR local load
-properties <- readRDS('properties.rds')
+properties <- readRDS('../data/local/properties.rds')
 
 # Selected variables of interest
 propertiesVars <-
@@ -281,13 +253,25 @@ propertiesData <- properties %>%
 
 ```
 
-```{r fig.width= 8, fig.height= 8}
 
+---
+
+### Properties and Vacant Lots
+
+
+Today, out of the 580 thousand properties across Philadelphia, over 27,000 are vacant. No two of these properties are the same: Some are expansive, covering multiple parcels; others are small side yards adjacent to homes.  
+
+
+
+```{r fig.width= 6, fig.height= 6}
 
 # All properties map
 ggplot() +
   geom_sf(data = phlcounty, color = NA, fill = colors[1], size = 0) + 
-  geom_sf(data = propertiesData, color = palette[1], size=0.02) +
+  geom_sf(data = propertiesData, color = palette[2], size = 0.5) +
+  labs(title = 'All Properties',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   mapTheme() +
   theme(axis.text.x = element_blank(),
         legend.position = "bottom",
@@ -296,23 +280,14 @@ ggplot() +
         panel.grid.major = element_blank(),
         )
 
-
 ```
 
 
 
 
-## Supply-side data
-
-### Vacant lots
-
-
-From metadata:  "Input characteristics of the model are determined to be either positive or negative indicators of vacancy. A positive indicator has a tendency to signify vacancy (e.g., code violation issued by L+I). A negative indicator has a tendency to signify occupancy (e.g., OPA occupied property code). Individual indicators are weighted based on age of observation/record or other factors as determined by city department subject matter experts for a contributing dataset. Each indicator is also determined to represent a vacant lot or vacant building, as documented in the contributing dataset."
-
-[source]('https://www.opendataphilly.org/dataset/vacant-property-indicators')
-
-
 ```{r data: vacant land}
+
+# [source]('https://www.opendataphilly.org/dataset/vacant-property-indicators')
 
 # OpenDataPhilly Vacant Property Indicator - Lots
 vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0032b58268c9f9_0.csv')
@@ -343,58 +318,50 @@ saveRDS(vacantLandProps, file = "vacantLandProps.rds")
 ```
 
 
+A map of these vacant properties reveals also that they tend to cluster in space and are unevenly distributed across the city.  We hypothesize that these patterns are not arbitrary but are attributable to certain demographic and socio-economic divisions that pervade Philadelphia (a claim that will be validated later in this analysis).
 
 
-
-
-```{r fig.width= 8, fig.height= 8}
+```{r fig.width= 6, fig.height= 6}
 
 # Vacant Lots in properties map
-ggplot() +
+
+vacantLandData %>%
+  mutate(vacant = 'vacant') %>%
+  right_join(propertiesData, by = c('OPA_ID' = 'parcel_number')) %>%
+  mutate(vacant = replace_na(vacant, 'not vacant')) %>%
+  st_sf() %>%
+  ggplot() +
   geom_sf(data = phlcounty, color = NA, fill = colors[1], size = 0) + 
-  geom_sf(data = propertiesData, color = palette[1], size=0.02) +
-  geom_sf(data = vacantLandProps, color = palette[2], size=0.02) +
+  geom_sf(aes(color = vacant), size=0.02) +
+  labs(title = 'Vacant Land',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
+  scale_color_manual("", values= c(palette[1], palette[3]), labels= c("not vacant", "vacant")) +
   mapTheme() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "bottom",
-        panel.border = element_blank(),
-        panel.background = element_rect(fill = colors[2]),
-        panel.grid.major = element_blank(),
-        )
-  
+    mapTheme() +
+    theme(axis.text.x = element_blank(),
+          legend.position = c(0.85, 0.15),
+          legend.key = element_rect(color = NA, fill = NA),
+          panel.border = element_blank(),
+          panel.background = element_rect(fill = colors[2]),
+          panel.grid.major = element_blank(),
+          )
+
 #mapSave_ggplot("vacantProperties")
 
 ```
 
+---
 
 
-```{r fig.width= 8, fig.height= 8}
+### Tax Delinquent Vacant Lots
 
-# Jusr vacant Lots map
-ggplot() +
-  geom_sf(data = phlcounty, color = NA, fill = colors[1], size = 0) + 
-  geom_sf(data = vacantLandProps, color = palette[1], size=0.02) +
-  mapTheme() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "bottom",
-        panel.border = element_blank(),
-        panel.background = element_rect(fill = colors[2]),
-        panel.grid.major = element_blank(),
-        )
-  
-#mapSave_ggplot("vacantProperties")
-
-```
-
-
-
-
-### Real Estate Tax Delinquencies
-
-[source]('https://www.opendataphilly.org/dataset/property-tax-delinquencies')
+So long as the owner of a vacant property keeps up with her property taxes, there is no risk that the property will be foreclosed upon.  However, it is when a property falls into a state of tax delinquency—that is, when the owner fails to pay tax on the property—that such a property becomes vulnerable to a forced sale.  Much like a mortgage lender, the City is entitled to foreclose on properties that are tax delinquent and may put them up for a sheriff’s sale to collect on back taxes.
 
 
 ```{r supply tax delinquencies}
+
+# [source]('https://www.opendataphilly.org/dataset/property-tax-delinquencies')
 
 # Real Estate Delinquencies from OpenData Philly:
 delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
@@ -429,12 +396,8 @@ delinquenciesData <- delinquencies %>%
 
 # JOIN to properties
 # propertiesData <---> delinquenciesData
-initialDate = '2017-01-01'
-finalDate = '2021-12-31'
-
 delinquenciesProps <- propertiesData %>%
   inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
-  # filter(sale_date >= initialDate & sale_date < finalDate) %>%
   st_sf()
 
 # save locally
@@ -443,9 +406,11 @@ delinquenciesProps <- propertiesData %>%
 ```
 
 
-Of all vacant properties, how many are delinquent?
 
-```{r fig.width= 8, fig.height= 8}
+As seen in the map below, not all vacant properties in Philadelphia are tax delinquent, but a substantial share—29percent—are.  Within certain legal parameters, the City may exercise its rights to foreclose on these properties, many of which serve the very community uses organizations such as Philadelphia Legal Assistance has set out to protect.
+
+
+```{r fig.width= 6, fig.height= 6}
 
 # map vacant properties (points)
 delinquenciesVacantProps <-
@@ -457,14 +422,16 @@ delinquenciesVacantProps <-
          delinquentType = replace_na(delinquentType, 0))
 
 
-
-# Map delinquent properties
+# Map delinquent properties in relation to Vacant properties
 ggplot() +
   geom_sf(data = phlcounty, color = NA, fill = colors[1], size = 0) + 
   geom_sf(data = delinquenciesVacantProps, 
           aes(color = factor(delinquentStatus)), 
           size = 0.02) +
-  scale_color_manual("delinquent", values= c(palette[1], palette[2]), labels= c("no", "yes")) +
+  scale_color_manual("", values= c(palette[1], palette[4]), labels= c("no", "yes")) +
+  labs(title = 'Delinquent Vacant Land',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   mapTheme() +
   theme(axis.text.x = element_blank(),
         legend.position = c(0.85, 0.15),
@@ -478,9 +445,14 @@ ggplot() +
 
 ```
 
-Where are these delinquencies concentrated?
 
-```{r fig.width= 8, fig.height= 8}
+Just as the distribution of vacant properties exhibits certain discernible spatial patterns, so too with tax delinquent vacant properties.  The **29 percent** of vacant properties which are tax delinquent cluster in the North Philadelphia region of the city, indicating that those properties which are most exposed to tax foreclosure risk are near to one another.
+
+
+
+>Where are these delinquencies concentrated?
+
+```{r fig.width= 6, fig.height= 6}
 
 # map vacant properties (fishnet)
 delinquenciesVacantNet <- delinquenciesVacantProps %>%
@@ -500,12 +472,18 @@ ggplot() +
     option = "mako",
     trans = "log1p",
     direction = 1) +
+  guides(
+    size = F,
+    fill= guide_colorbar(barheight = 7, title.position = "top")) +
+  labs(title = 'Delinquent Vacant Land Distribution',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   mapTheme() +
   theme(axis.text.x = element_blank(),
         legend.position = c(0.85, 0.2),
-        legend.title = element_text(size = 10, color = colors[1], hjust = 0.5),
+        legend.title = element_text(size = 8, color = colors[1], hjust = 0.5),
         legend.background = element_blank(),
-        legend.text = element_text(size=8),
+        legend.text = element_text(size = 8),
         panel.border = element_blank(),
         panel.background = element_rect(fill = colors[2]),
         panel.grid = element_blank(),
@@ -517,20 +495,29 @@ ggplot() +
 
 
 
+> What is the trend?
 
-```{r}
+
+```{r fig.width= 6, fig.height= 4}
 
 # trend of delinquencies # whether it is vacant or not, doesn't matter
-
 delinquenciesProps %>%
   group_by(oldest_year_owed) %>%
   summarise(countProp = n()) %>%
   st_drop_geometry() %>% 
   ggplot(
     aes(x=oldest_year_owed, y=countProp)) + 
-  geom_line(color = palette[2], size=1.5) + 
+  geom_area(fill = palette[4], alpha = 0.8) + 
+  labs(title = 'Delinquencies by Last Year Owed',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   xlab("year") +
-  ylab("tax delinquent properties")
+  ylab("tax delinquent properties") +
+  theme(panel.border = element_blank(),
+        panel.background = element_rect(fill = colors[2]),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()
+        )
 
 #chartSave_ggplot("delinquentTrend")
 
@@ -538,7 +525,7 @@ delinquenciesProps %>%
 
 
 
-```{r}
+```{r fig.width= 6, fig.height= 4}
 
 # trend of delinquencies of vacant properties
 delinquenciesVacantProps %>%
@@ -547,86 +534,46 @@ delinquenciesVacantProps %>%
   st_drop_geometry() %>%
   ggplot(
     aes(x = oldest_year_owed, y = countProp)) + 
-  geom_line(color = palette[2], size = 1.5) + 
+  geom_area(fill = palette[4], color = NA, alpha = 0.8) + 
+  labs(title = 'Delinquencies by Oldest Year Owed',
+       subtitle = 'Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   xlab("year") +
   ylab("tax delinquent vacant properties") +
-  ylim(c(0, 1600)) 
+  ylim(c(0, 1600)) +
+  theme(panel.border = element_blank(),
+        panel.background = element_rect(fill = colors[2]),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()
+        )
 
 #chartSave_ggplot("delinquentVacantTrend")
 ```
 
 
-
-
-
+---
 
 
 ### US Bank Liens
 
-```{r data: us bank liens}
 
-# Client-provided US Bank Liens Data (as 'US Bank sharp')
-# These are Liens that have been sold - UPDATE?
-usBankLiens_0 <- read.csv("./data/usBank.csv") %>%
-  dplyr::select(-X) %>%
-  na.omit() %>%
-  st_as_sf(coords = c('x', 'y'), crs = 4326, agr = 'constant')
+A further subclass of vacant properties in Philadelphia are those to which taxes are owed to U.S. Bank, a private financial institution that purchased a large portfolio of tax liens from the City of Philadelphia in the late 1990’s. Among all vacant properties in Philadelphia, over 5 percent fall into this category and are subject to liens owned by U.S. Bank. Furthermore, of all vacant properties that are tax delinquent, nearly 20 percent are encumbered by debt to U.S. Bank, entitling it to initiate foreclosure proceedings just like the City. As will be seen later, a large share of recent sheriff’s sales has implicated properties encumbered by liens owned by U.S. Bank.
 
 
-# US Bank Liens geocoded (by GILLIAN):
-usBankLiens_1 <- read.csv("./data/usBankLiens_latlon.csv") %>%
-  rename(lon = 'long') %>%
-  filter(!is.na(lat), !is.na(lon)) %>% 
-  st_as_sf(coords = c("lon","lat"), crs = 4269)  %>%
-  filter(X != 16)                                                # TAKE out Mississippi geocode error
-
-
-# US Bank Liens pending geocoding (with NAs):
-usBankLiens_NA <- read.csv("./data/usBankLiens_latlonNA.csv") %>%
-  rename(lon = 'long')
-
-
-# visualize liens locations
-m(usBankLiens_1, zcol='CALC_TOTAL')
-
-
-```
-
-
-```{r}
-
-delinquenciesVacantProps %>%
-  filter(delinquentStatus == 1) %>%
-  group_by(liens_sold_1990s) %>%
-  summarise(countUsBank = n()) %>%
-  st_drop_geometry() %>%
-  ggplot(aes(liens_sold_1990s, countUsBank, fill = factor(liens_sold_1990s))) + 
-  geom_bar(position = "dodge", stat = "summary", fun = "mean") +
-  scale_fill_manual(values = c(palette[3], palette[4]),
-                    name="") +
-  scale_x_discrete(name = "US bank lien", 
-                   labels = c("no", "yes")) +
-  ylab("properties") +
-  theme(legend.position = "none")
-
-#chartSave_ggplot("usbankBar")
-
-
-```
-
-
-```{r fig.width= 8, fig.height= 8}
+```{r fig.width= 6, fig.height= 6}
 
 # US Bank Liens comparison map
-
 delinquenciesVacantProps %>%
   filter(delinquentType > 0) %>%
   ggplot() +
   geom_sf(data = phlcounty, color = NA, fill = colors[1]) + 
   geom_sf(aes(color = factor(delinquentType)), 
           size = 0.02) +
-  scale_color_manual("", values = c(palette[1], palette[2]),
+  scale_color_manual("", values = c(palette[1], palette[5]),
                      labels= c("delinquent vacant", "US Bank lien")) +
+  labs(title = 'US Bank Delinquent',
+       subtitle = 'Vacant Land Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   mapTheme() +
   theme(axis.text.x = element_blank(),
         legend.position = c(0.85, 0.15),
@@ -642,26 +589,51 @@ delinquenciesVacantProps %>%
 ```
 
 
+```{r fig.width= 4, fig.height= 6}
 
-### Real Estate Transfers
+delinquenciesVacantProps %>%
+  filter(delinquentStatus == 1) %>%
+  group_by(liens_sold_1990s) %>%
+  summarise(countUsBank = n()) %>%
+  st_drop_geometry() %>%
+  ggplot(aes(liens_sold_1990s, countUsBank, fill = factor(liens_sold_1990s))) + 
+  geom_bar(position = "dodge", stat = "summary", fun = "mean", width = 0.8) +
+  labs(title = 'US Bank Delinquent',
+       subtitle = 'Vacant Land Properties in Philadelphia County') +
+  scale_fill_manual(values = c(palette[1], palette[5]),
+                    name="") +
+  scale_x_discrete(name = "US bank lien", 
+                   labels = c("no", "yes")) +
+  ylab("properties") +
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = colors[2]),
+        panel.grid.major.x =  element_blank()
+        )
 
-Real Estate Transfers Tax Documents
+#chartSave_ggplot("usbankBar")
 
-[source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
+```
 
-Dataset description:
 
-"Description	This is a summary of real estate transfer tax (RTT) documents. This table contains both raw source data as well as calculated/geocoded data, which are described below. Each row represents a distinct property involved in a RTT transaction document; all properties involved in a transaction share the same document_id. Please note that 918 transactions have been temporarily omitted while we address data integration issues with these records."
+
+---
+
+
+### Sheriff Sales
+
+Once either the City or U.S. Bank petitions to foreclose on a tax delinquent property in court, unless the property owner appears to contest the foreclosure or the court independently finds a reason not to foreclose, the court will grant the petition and allow the property to be sold via a sheriff’s sale. As alluded to in the Introduction, communities and neighbors who may have cared for the property for yearsin the owner’s absence frequently are not even made aware that a property has been listed, let alone sold, at a sheriff’s sale.
 
 
 ```{r data: transfers}
+
+# [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
 
 # OpenDataPhilly Endpoint of Property Assessment History:
 # transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
 #transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
 
 # OR load locally
-transfers <- readRDS('transfers.rds')
+transfers <- readRDS('../data/local/transfers.rds')
 
 # OpenDataPhilly - Transfers (48 variables)
 transfersVars <- 
@@ -715,10 +687,11 @@ transfersProps <- propertiesData %>%
 ```
 
 
+Where sheriff’s sales are taking place in Philadelphia can be shown on the map. Unsurprisingly, these properties cluster in thesame regions in North Philadelphia where there is the highest concentration of tax delinquent vacant properties. Nearly 30 percent of all tax delinquent properties either have already been sold at a sheriff’s sale or are scheduled for sheriff’s sales.
 
-### Sheriff Sales
 
-```{r fig.width= 8, fig.height= 8}
+
+```{r data: sheriff sales, fig.width= 6, fig.height= 6}
 
 # sheriff sales after 2021 from client
 sheriffSales_21 <- read_csv('./data/sheriffSales_21.csv') %>%
@@ -748,14 +721,17 @@ sheriffProps <-
          sheriffSaleYear = year(as.Date(display_date))) 
 
 
-# Plot sheriff sales
+# Map sheriff sales in relation to vacant delinquent properties
 ggplot() +
   geom_sf(data = phlcounty, color = NA, fill = "#222222") + 
   geom_sf(data = subset(sheriffProps, delinquentStatus == 1), 
           aes(color = factor(allSheriffSales)), 
-          size = 0.02) +
-  scale_color_manual("", values= c(palette[1], palette[2]),
+          size = 0.2) +
+  scale_color_manual("", values= c(palette[1], palette[6]),
                      labels= c("vacant delinquent", "sheriffs sale")) +
+  labs(title = 'Historical Sheriff Sales',
+       subtitle = 'Vacant Land Properties in Philadelphia County',
+       caption = 'OpenDataPhilly') +
   mapTheme() +
   theme(axis.text.x = element_blank(),
         legend.position = c(0.85, 0.15),
@@ -768,10 +744,12 @@ ggplot() +
 
 ```
 
->>> Is the drop in the chart below because we're missing or have inconsistent data?
+
+The urgency of the present problem can be further understood when sheriff’s sales are displayed as a function of time. In the past decade, the number of yearly sheriff’s sales has increased dramatically, as shown in the chart below. One plausible theory explaining this recent uptick is that the value of vacant property appreciates with the overall real estate market. The chart loosely proves this correlation: Sheriff’s sales fell to an all-time low in the immediate aftermath of the **2008 subprime mortgage crisis**, increased almost exponentially in the past 5-10 years, and briefly dropped off again in the wake of the coronavirus pandemic. We believe that this recent downtick will likely be temporary, however, as the City moved sheriff’s sales online, opening properties to a wider number of potential buyers.
 
 
-```{r}
+
+```{r fig.width= 6, fig.height= 4}
 
 # TO TABLE
 # trend of sheriff's sale 
@@ -790,14 +768,22 @@ sheriffProps %>%
   st_drop_geometry() %>%
   filter(pastSheriffSale == 1) %>%
   ggplot(aes(x = as.numeric(sheriffSaleYear), y= countSheriffSale)) + 
-  geom_vline(xintercept = 2017, color = palette[5], size=1) +
-  geom_line(color = palette[3], size=1.5) + 
+  geom_area(fill = palette[6], alpha = 0.8) + 
+  geom_vline(xintercept = 2017, color = palette[3], size = 1) +
   xlab("year") +
   scale_x_continuous(
     breaks = seq(from = 1999, to = 2021, by = 2),
     limits = c(1999, 2021)) +
   ylab("sheriff's sales") +
-  geom_text(x = 2017, y = 300, label = "", angle = 0)
+  labs(title = 'Sheriff Sales: Historical and Scheduled',
+       subtitle = 'Vacant Land Properties in Philadelphia County',
+       caption = 'OpenDataPhilly & Adam Butler') +
+  geom_text(x = 2017, y = 300, label = "", angle = 0) +
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = colors[2]),
+        panel.grid.major.x =  element_blank(),
+        panel.grid.minor.x =  element_blank()
+        )
 
 #chartSave_ggplot("sheriffSaleTrend")
 
@@ -825,7 +811,7 @@ sheriffProps %>%
 # permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
 
 # OR local load
-permits <- readRDS('permits.rds')
+permits <- readRDS('../data/local/permits.rds')
 
 
 # List the permit data set variables needed
@@ -973,177 +959,27 @@ permitsPanel <-
 ```
 
 
+---
 
 
-### Permits in the last 15 years
-
-```{r data: permit issue evolution A, fig.width= 8, fig.height= 8}
-
-# Create Animation
-animation <- 
-  ggplot() +
-  geom_sf(data = permitsPanel, aes(fill = permitCount), color = NA) +
-  scale_fill_viridis(option = "magma",
-                     limits = c(0, 20),
-                     trans = "log1p",
-                     breaks = c(0, 5, 10, 20),
-                     direction = 1) +
-  labs(title = "Zoning permits issued in Philadelphia",
-       fill = "",
-       caption = "Source: OpenDataPhilly") +
-  guides(fill= guide_colorbar(barheight = 9, title.position = "bottom", label.position = "right")) +
-  geom_text(data = permitsPanel,
-            aes(label = substr(period, 1, 4)),
-            size = 8, x = -Inf, y = Inf, vjust = 1.5, hjust = -.1, colour = "black") +
-    transition_manual(period) +
-    mapTheme() +
-    theme(legend.position = c(0.85, 0.2),
-          legend.background = element_blank(),
-          panel.border = element_blank(),
-          panel.background = element_rect(fill = "#eeeeee"),
-          panel.grid = element_blank()
-          )
-
-animation
-
-anim_save("testPLA.gif", animation)
-
-```
+## Demographic Patterns
 
 
+Because vacant properties are frequently a signal of disinvestment, where they tend to cluster can reveal much about the socio-economic profile of a city. In Philadelphia, the distribution of vacant properties is markedly uneven, which is a proxy for the spatial inequality of the greater city.
 
+---
 
-```{r data: permits issue change: 5 years A, fig.width= 12, fig.height= 8}
+### Racial disparity
 
-# classify zoning permits by five-year periods
-permitsLustrums <- 
-  permitsPanel %>%
-  mutate(year = as.integer(substr(period, 1,4)),
-         lustrum = case_when(
-           year %in% seq(2007, 2011) ~ '2007-2011',
-           year %in% seq(2012, 2016) ~ '2012-2016',
-           year %in% seq(2017, 2021) ~ '2017-2021'
-         )) %>%
-  filter(year != '2022') %>%
-  dplyr::select(-period, -year) %>%
-  group_by(lustrum, uniqueID) %>%
-  summarize(permitCount = sum(permitCount))
+Race is one context in which this unevenness is apparent. Both vacant land and tax delinquent properties are overrepresented in majority–minority neighborhoods relative to majority white neighborhoods. If properties become vacant and tax delinquent in places where economic investment is low, this indicates that investment tends to happen along racial lines.
 
-
-# side-by-side five-year period zoning permits
-permitsLustrums %>%
-  ggplot() +
-  geom_sf(aes(fill = permitCount), color = NA) +
-  scale_fill_viridis(
-    option = "magma",
-    limits = c(0,120),
-    trans = "log1p",
-    breaks = c(0,30,60,120),
-    direction = 1) +
-  labs(
-    title = "Zoning permits issued in Philadelphia",
-    fill = "number of permits",
-    caption = "Source: OpenDataPhilly") +
-  guides(
-    size = F,
-    fill= guide_colorbar(barwidth = 21, title.position = "top")) +
-  facet_wrap(~lustrum, ncol = 3) +
-  mapTheme() +
-  theme(
-    legend.position = "bottom",
-    legend.background = element_blank(),
-    panel.border = element_blank(),
-    panel.background = element_rect(fill = "#eeeeee"),
-    panel.grid = element_blank(),
-    strip.background = element_rect(fill = "#eeeeee"),
-    strip.text.x = element_text(size = 12, color = '#222222', hjust=0.01)
-    )
-
-```
-
-
-```{r data: permits issue change: 5 years B, fig.width= 12, fig.height= 8}
-
-# side-by-side five-year period zoning permits
-permitsLustrums %>%
-  ggplot() +
-  geom_sf(aes(fill = permitCount), color = NA) +
-  scale_fill_viridis(
-    option = "magma",
-    limits = c(0,120),
-    trans = "log1p",
-    breaks = c(0,30,60,120),
-    direction = 1) +
-  labs(
-    title = "Zoning permits issued in Philadelphia",
-    fill = "number of permits",
-    caption = "Source: OpenDataPhilly") +
-  guides(
-    size = F,
-    fill= guide_colorbar(barwidth = 21, title.position = "top")) +
-  geom_sf(data = majminFishnet, fill = '#ffffff', color = '#eeeeee', alpha = 0.2) +
-  geom_sf(data = phlFishnet, fill = NA, colour = "#222222") +
-  facet_wrap(~lustrum, ncol = 3) +
-  mapTheme() +
-  theme(
-    legend.position = "bottom",
-    legend.background = element_blank(),
-    panel.border = element_blank(),
-    panel.background = element_rect(fill = "#eeeeee"),
-    panel.grid = element_blank(),
-    strip.background = element_rect(fill = "#eeeeee"),
-    strip.text.x = element_text(size = 12, color = '#222222', hjust=0.01)
-    )
-
-```
-
-
-```{r data: permits issue change: 5 years C, fig.width= 12, fig.height= 8}
-
-# side-by-side five-year period zoning permits
-permitsLustrums %>%
-  ggplot() +
-  geom_sf(aes(fill = permitCount), color = NA) +
-  scale_fill_viridis(
-    option = "magma",
-    limits = c(0,120),
-    trans = "log1p",
-    breaks = c(0,30,60,120),
-    direction = 1) +
-  labs(
-    title = "Zoning permits issued in Philadelphia",
-    fill = "number of permits",
-    caption = "Source: OpenDataPhilly") +
-  guides(
-    size = F,
-    fill= guide_colorbar(barwidth = 21, title.position = "top")) +
-  geom_sf(data = majminFishnet, fill = '#eeeeee', color = '#eeeeee', alpha= 1) +
-  geom_sf(data = phlFishnet, fill = NA, colour = "#222222") +
-  facet_wrap(~lustrum, ncol = 3) +
-  mapTheme() +
-  theme(
-    legend.position = "bottom",
-    legend.background = element_blank(),
-    panel.border = element_blank(),
-    panel.background = element_rect(fill = "#eeeeee"),
-    panel.grid = element_blank(),
-    strip.background = element_rect(fill = "#eeeeee"),
-    strip.text.x = element_text(size = 12, color = '#222222', hjust=0.01)
-    )
-
-```
-
-
-
-
-
-## Neighborhood effects
 
 ```{r fig.width=12, fig.height=6}
 
 # set color palette
-color1 <- "#00c462" 
-color2 <- "#009e69"
+color1 <- "#ff6e14" 
+color2 <- "#00bbc2"
+
 
 # define function
 getNhMajMin <-
@@ -1200,15 +1036,23 @@ grid.arrange(
           panel.background = element_rect(fill = "#ffffff"),
           panel.grid.major.x = element_blank(),
           ),
-  ncol=2,
-  widths=c(3,1))
+  ncol = 2,
+  widths = c(2,1))
 
 
 ```
 
 
+### Income disparity
+
+
+Median income is another demographic feature affecting the distribution of vacant properties in Philadelphia. Vacant properties and tax delinquent properties are represented in greater numbers in areas with households below the median income than in those above. The reason for this distribution may be self-evident: Higher income households would be naturally more equipped to keep up and pay taxes on property than low-income households.
+
 
 ```{r fig.width=12, fig.height=6}
+
+color1 <- "#fc754c"
+color2 <- "#4c84f5" 
 
 # define function
 getNhIncome <-
@@ -1249,7 +1093,7 @@ grid.arrange(
             panel.background = element_rect(fill = "#ffffff"),
             panel.grid.major.x = element_blank(),
             strip.background = element_rect(fill = "#ffffff"),
-            strip.text.x = element_text(size = 16, color = '#222222')
+          strip.text.x = element_text(size = 16, color = colors[1])
             ),
     demographics %>%
       dplyr::select(nhIncome) %>%
@@ -1266,15 +1110,25 @@ grid.arrange(
             panel.background = element_rect(fill = "#ffffff"),
             panel.grid.major.x = element_blank(),
             strip.background = element_rect(fill = "#ffffff"),
-            strip.text.x = element_text(size = 16, color = '#222222', hjust=0.05)
+            strip.text.x = element_text(size = 16, color = colors[1], hjust=0.05)
             ),
     ncol = 2,
-    widths = c(3, 1))
+    widths = c(2, 1))
 
 ```
 
+---
+
+### Home ownership disparity
+
+Finally, whether a neighborhood is primarily composed of renters or owners appears to be correlated to the neighborhood’s relative share of vacant properties. Specifically, those with a higher proportion of non-owners see higher number of vacant properties and tax delinquent properties than those predominately comprised of owners.
+
+
 
 ```{r fig.width=12, fig.height=6}
+
+color1 <- "#fc5a4c"
+color2 <- "#4cbaf5"
 
 # define function
 getNhTenure <-
@@ -1302,11 +1156,11 @@ grid.arrange(
     geom_bar(stat = "identity", width = .8) +
     scale_fill_manual(values = c(color1, color2)) +
     labs(title="Neighborhood effects",
-         subtitle = "Number of properties by Ammount of Property Ownership",
+         subtitle = "Number of properties by Amount of Property Ownership",
          x = "",
          y = "properties") +
     geom_text(aes(label = nhTenure, color = nhTenure), vjust = -.5) +
-    scale_colour_manual(values=c(color1, color2)) +
+    scale_colour_manual(values = c(color1, color2)) +
     facet_wrap(~factor, ncol = 4, strip.position = "bottom") +
     plotTheme() +
     theme(axis.text.x = element_blank(),
@@ -1338,6 +1192,205 @@ grid.arrange(
 ```
 
 
+---
+
+
+## Development Activity
+
+
+As the real estate market has continued to heat up in Philadelphia over the past decade, development activity has increased at a steady clip. Vacant and tax delinquent properties have lately become attractive to developers as a result, so to understand which vacant properties may be at greatest risk of disposition, one must also understand which areas are seeing the steepest rise in development activity.
+
+
+A readily available proxy for development activity is zoning permits. For all forms of new real estate development, developers must obtain a zoning permit from the City of Philadelphia, even where the development is allowed by right. As such, a map of zoning permits in Philadelphia, shown below, can illustrate where development activity is clustering.
+
+
+
+```{r data: permit issue evolution A, fig.width= 8, fig.height= 8}
+
+# Create Animation
+animation <- 
+  ggplot() +
+  geom_sf(data = permitsPanel, aes(fill = permitCount), color = NA) +
+  scale_fill_viridis(option = "magma",
+                     limits = c(0, 20),
+                     trans = "log1p",
+                     breaks = c(0, 5, 10, 20),
+                     direction = 1) +
+  labs(title = "Zoning permits issued in Philadelphia",
+       fill = "",
+       caption = "Source: OpenDataPhilly") +
+  guides(fill= guide_colorbar(barheight = 9, title.position = "bottom", label.position = "right")) +
+  geom_text(data = permitsPanel,
+            aes(label = substr(period, 1, 4)),
+            size = 8, x = -Inf, y = Inf, vjust = 1.5, hjust = -.1, colour = "black") +
+    transition_manual(period) +
+    mapTheme() +
+    theme(legend.position = c(0.85, 0.2),
+          legend.background = element_blank(),
+          panel.border = element_blank(),
+          panel.background = element_rect(fill = "#eeeeee"),
+          panel.grid = element_blank()
+          )
+
+animate(animation, duration=20, renderer = gifski_renderer())
+
+# save gif locally
+# anim_save("zoningPermits.gif", animation)
+
+```
+
+
+Where development is occurring spatially is only one relevant component, however. Equally important is the time element. The below chart displays how the real estate market has moved and increased over time.
+
+
+
+```{r data: permits issue change: 5 years A, fig.width= 12, fig.height= 8}
+
+# classify zoning permits by five-year periods
+permitsLustrums <- 
+  permitsPanel %>%
+  mutate(year = as.integer(substr(period, 1,4)),
+         lustrum = case_when(
+           year %in% seq(2007, 2011) ~ '2007-2011',
+           year %in% seq(2012, 2016) ~ '2012-2016',
+           year %in% seq(2017, 2021) ~ '2017-2021'
+         )) %>%
+  filter(year != '2022') %>%
+  dplyr::select(-period, -year) %>%
+  group_by(lustrum, uniqueID) %>%
+  summarize(permitCount = sum(permitCount))
+
+
+# side-by-side five-year period zoning permits
+permitsLustrums %>%
+  ggplot() +
+  geom_sf(aes(fill = permitCount), color = NA) +
+  scale_fill_viridis(
+    option = "magma",
+    limits = c(0,120),
+    trans = "log1p",
+    breaks = c(0,30,60,120),
+    direction = 1) +
+  labs(
+    title = "Zoning permits issued in Philadelphia",
+    subtitle = "by five-year periods. All neighborhoods.",
+    fill = "number of permits",
+    caption = "Source: OpenDataPhilly") +
+  guides(
+    size = F,
+    fill= guide_colorbar(barwidth = 21, title.position = "top")) +
+  facet_wrap(~lustrum, ncol = 3) +
+  mapTheme() +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_rect(fill = colors[2]),
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = colors[2]),
+    strip.text.x = element_text(size = 12, color = colors[1], hjust=0.01)
+    )
+
+```
+
+
+Much like with vacant properties, development activity tracks with specific demographic patterns, as well. The map below shows majority–minority Philadelphia neighborhoods with majority white neighborhoods removed, in order to underscore the steady movement of development activity into majority–minority neighborhoods and out of majority white ones, a process most commonly known as gentrification.
+
+
+```{r data: permits issue change: 5 years C, fig.width= 12, fig.height= 8}
+
+# side-by-side five-year period zoning permits
+permitsLustrums %>%
+  ggplot() +
+  geom_sf(aes(fill = permitCount), color = NA) +
+  scale_fill_viridis(
+    option = "magma",
+    limits = c(0,120),
+    trans = "log1p",
+    breaks = c(0,30,60,120),
+    direction = 1) +
+  labs(
+    title = "Zoning permits issued in Philadelphia",
+    subtitle = "by five-year periods. Non-white majority neighborhoods.",
+    fill = "number of permits",
+    caption = "Source: OpenDataPhilly") +
+  guides(
+    size = F,
+    fill= guide_colorbar(barwidth = 21, title.position = "top")) +
+  geom_sf(data = majminFishnet, fill = colors[2], color = colors[2], alpha= 1) +
+  geom_sf(data = phlFishnet, fill = NA, colour = colors[1]) +
+  facet_wrap(~lustrum, ncol = 3) +
+  mapTheme() +
+  theme(
+    legend.position = "bottom",
+    legend.background = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_rect(fill = colors[2]),
+    panel.grid = element_blank(),
+    strip.background = element_rect(fill = colors[2]),
+    strip.text.x = element_text(size = 12, color = colors[1], hjust=0.01)
+    )
+
+```
+
+
+Finally, the chart below shows how the zoning permit issue activity for vacant land tax delinquent properties in Philadelphia strongly follows the same activity of the overall properties throughout the city. 
+
+
+```{r fig.width= 8, fig.height=4}
+
+allPermitsProps <-
+  left_join(delinquenciesVacantProps,
+            st_drop_geometry(permitsProps),
+            by=c("parcel_number")) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+
+tabPermitByYr <-
+  allPermitsProps %>%
+  filter(is.na(permittype) == F) %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tabPermitAllByYr <- 
+  permitsProps %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tabPermitBothByYr <-
+  merge(tabPermitByYr, tabPermitAllByYr, by="year(permitissuedate)") %>%
+  dplyr::select(1,3,5) %>%
+  rename("year" = 1,
+         "permitOnVacant" = 2,
+         "permitPhilly" = 3) %>%
+  gather(key="variable", value="value", -year)
+
+
+# chart
+
+tabPermitBothByYr %>%
+  ggplot(aes(x = year, y = value, color = variable)) +
+  geom_line(size = 1) +
+  scale_x_continuous(breaks = seq(from = 2005,
+                                to = 2025,
+                                by = 2)) +
+  ylab("zoning permits") +
+  scale_color_manual(values = c(palette[3], palette[6]),
+                     labels = c("Vacant Sites", "Philadelphia"),
+                     name="legend")  +
+  labs(title = 'Development indictator',
+       subtitle = 'Zoning permits issued in Philadelphia by vacancy of properties',
+       caption = 'OpenDataPhilly') +
+  geom_text(x = 2017, y = 300, label = "", angle = 0) +
+  theme(legend.position = "right",
+        legend.title = element_blank(),
+        panel.background = element_rect(fill = colors[2]),
+        panel.grid.major.x =  element_blank(),
+        panel.grid.minor.x =  element_blank()
+        )
+
+```
 
 
 
