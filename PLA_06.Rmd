@@ -19,7 +19,7 @@ Smart Cities Practicum
 ```{r setup, include=FALSE}
 
 # R Markdown options
-knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T)
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T, cache.lazy = F)
 
 # LOAD PACKAGES
 
@@ -45,6 +45,8 @@ library(viridis)
 # R options setup
 options(scipen = 999)
 options(tigris_class = "sf")
+options(tigris_use_cache = T)
+options(knitr.graphics.error = F)
 
 # additional functions from PPA book
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -85,10 +87,10 @@ Such has been the philosophy of the enterprising residents of Philadelphia, a ci
 Recently, however, a threat has emerged that could result in the sale of scores of these vacant properties.
 
 
-The City of Philadelphia has been foreclosing on vacant properties in bulk to recover delinquent taxes. Following foreclosure, the City will initiate a forced sale through a public auction known as a sheriff's sale, transferring the property to the highest bidder. Neither the original owner nor the neighbors who have cared for the property in the owner's absence can stop such a sale once it's underway.
+The City of Philadelphia has been foreclosing on vacant properties in bulk to recover **delinquent taxes**. Following foreclosure, the City will initiate a forced sale through a public auction known as a **sheriff's sale**, transferring the property to the highest bidder. Neither the original owner nor the neighbors who have cared for the property in the owner's absence can stop such a sale once it's underway.
 
 
-As if that were not enough, vacant lots in Philadelphia face an additional threat. In the late 1990's, the City of Philadelphia sold over 30,000 tax liens to U.S. Bank, a private financial institution, in an effort to raise funds for public education. (This effort proved largely [unsuccessful](https://controller.phila.gov/wp-content/uploads/2018/06/DelinquentRealEstateTaxes_November2013.pdf#page=20).) As a result, today over two thousand vacant lots in Philadelphia are encumbered by liens owned by U.S. Bank, entitling the bank unilaterally to foreclose on those properties, much like the City.
+As if that were not enough, vacant lots in Philadelphia face an additional threat. In the late 1990's, the City of Philadelphia sold over 30,000 tax liens to **U.S. Bank**, a private financial institution, in an effort to raise funds for public education. (This effort proved largely [unsuccessful](https://controller.phila.gov/wp-content/uploads/2018/06/DelinquentRealEstateTaxes_November2013.pdf#page=20).) As a result, today over two thousand vacant lots in Philadelphia are encumbered by liens owned by U.S. Bank, entitling the bank unilaterally to foreclose on those properties, much like the City.
 
 
 In light of these trends, neighbors and communities are rightly concerned that they may lose properties that, for years, have constructively been theirs. But there is reason for hope. 
@@ -97,7 +99,7 @@ In light of these trends, neighbors and communities are rightly concerned that t
 A range of legal and policy options may be available to these stakeholders depending on their specific circumstances. Advocacy [efforts](https://www.pubintlaw.org/cases-and-projects/our-testimony-on-us-bank-liens-and-displacement-in-philadelphia/) are currently underway to halt sheriff's sales for certain classes of vacant lots. Some policy solutions already exist, especially for vacant lots that are [City-owned](https://phdcphila.org/land/buy-land/side-or-rear-yards/). In some cases, stakeholders may even have legal rights: Neighbors who have tended to vacant lots adjoining their properties may have a path to ownership through a legal doctrine known as [adverse possession](https://www.law.cornell.edu/wex/adverse_possession).
 
 
-A variety of grassroots and legal advocacy organizations have taken up the mantle to explore these options, and more, to ensure that vacant lots remain in the care of the neighbors and communities who have invested in them for years. In collaboration with Philadelphia Legal Assistance, we are thus creating a web app to help residents, policymakers, and members of the public to understand the scope of this problem. The app will be designed to accomplish two, principal aims: (1) to visualize and explore the full portfolio of vacant properties in Philadelphia; and (2) to predict and rank which are under the greatest threat of development.
+A variety of grassroots and legal advocacy organizations have taken up the mantle to explore these options, and more, to ensure that vacant lots remain in the care of the neighbors and communities who have invested in them for years. In collaboration with **Philadelphia Legal Assistance**, we are thus creating a web app to help residents, policymakers, and members of the public to understand the scope of this problem. The app will be designed to accomplish two, principal aims: (1) to visualize and explore the full portfolio of vacant properties in Philadelphia; and (2) to predict and rank which are under the greatest threat of development.
 
 
 ---
@@ -356,7 +358,7 @@ vacantLandData %>%
 
 ### Tax Delinquent Vacant Lots
 
-So long as the owner of a vacant property keeps up with her property taxes, there is no risk that the property will be foreclosed upon.  However, it is when a property falls into a state of tax delinquency—that is, when the owner fails to pay tax on the property—that such a property becomes vulnerable to a forced sale.  Much like a mortgage lender, the City is entitled to foreclose on properties that are tax delinquent and may put them up for a sheriff’s sale to collect on back taxes.
+So long as the owner of a vacant property keeps up with her property taxes, there is no risk that the property will be foreclosed upon.  However, it is when a property falls into a state of tax delinquency —that is, when the owner fails to pay tax on the property— that such a property becomes vulnerable to a forced sale.  Much like a mortgage lender, the City is entitled to foreclose on properties that are tax delinquent and may put them up for a sheriff’s sale to collect on back taxes.
 
 
 ```{r supply tax delinquencies}
@@ -407,7 +409,7 @@ delinquenciesProps <- propertiesData %>%
 
 
 
-As seen in the map below, not all vacant properties in Philadelphia are tax delinquent, but a substantial share—29percent—are.  Within certain legal parameters, the City may exercise its rights to foreclose on these properties, many of which serve the very community uses organizations such as Philadelphia Legal Assistance has set out to protect.
+As seen in the map below, not all vacant properties in Philadelphia are tax delinquent, but a substantial share —29percent—a re.  Within certain legal parameters, the City may exercise its rights to foreclose on these properties, many of which serve the very community uses organizations such as Philadelphia Legal Assistance has set out to protect.
 
 
 ```{r fig.width= 6, fig.height= 6}
@@ -495,7 +497,7 @@ ggplot() +
 
 
 
-> What is the trend?
+> What is the trend in delinquencies?
 
 
 ```{r fig.width= 6, fig.height= 4}
@@ -629,11 +631,11 @@ Once either the City or U.S. Bank petitions to foreclose on a tax delinquent pro
 # [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
 
 # OpenDataPhilly Endpoint of Property Assessment History:
-# transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
-#transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
+transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
+# transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
 
 # OR load locally
-transfers <- readRDS('../data/local/transfers.rds')
+# transfers <- readRDS('../data/local/transfers.rds')
 
 # OpenDataPhilly - Transfers (48 variables)
 transfersVars <- 
@@ -655,7 +657,7 @@ transfersVars <-
 
 # Data wrangling
 transfersData <- transfers %>%
-  dplyr::select(transfersVars) %>%
+  dplyr::select(all_of(transfersVars)) %>%
   filter(!is.na(opa_account_num)) %>%
   filter(document_type %in% c('DEED',
                               'DEED LAND BANK',
@@ -677,9 +679,8 @@ transfersProps <- propertiesData %>%
                                          "DEED MISCELLANEOUS" = 3,
                                          "DEED OF CONDEMNATION" = 4,
                                          "DEED LAND BANK" = 5,
-                                         "DEED MISCELLANEOUS TAXABLE" = 6)))) %>%
-  arrange(parcel_number, document_type) %>%
-  distinct(parcel_number, .keep_all = TRUE)
+                                         "DEED MISCELLANEOUS TAXABLE" = 6))))
+
   
 # save locally
 # saveRDS(transfers, file = "transfers.rds")
@@ -700,7 +701,9 @@ sheriffSales_21 <- read_csv('./data/sheriffSales_21.csv') %>%
 # Sheriff Sales before 2021 from real estate transfers data (completed)
 sheriffSales_20 <-
   transfersProps %>%
-  filter(document_type == "DEED SHERIFF") 
+  filter(document_type == "DEED SHERIFF") %>%
+  arrange(parcel_number, document_type) %>%
+  distinct(parcel_number, .keep_all = TRUE)
 
 
 # join all sheriff sales info we have together
@@ -1205,7 +1208,7 @@ A readily available proxy for development activity is zoning permits. For all fo
 
 
 
-```{r data: permit issue evolution A, fig.width= 8, fig.height= 8}
+```{r data: permit issue evolution A, fig.width= 8, fig.height= 8, results='markup'}
 
 # Create Animation
 animation <- 
@@ -1233,9 +1236,6 @@ animation <-
           )
 
 animate(animation, duration=20, renderer = gifski_renderer())
-
-# save gif locally
-# anim_save("zoningPermits.gif", animation)
 
 ```
 

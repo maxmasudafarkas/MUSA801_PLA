@@ -595,6 +595,37 @@ ggplot() +
 
 ``` {r}
 
+allPermitsProps <-
+  left_join(allProps,
+            st_drop_geometry(zoningPermitsProps_allYrs),
+            by=c("parcel_number"="opa_account_num")) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+  
+# check_dupPermit <- delinquentVacantTransferConstructionProps %>%
+#   filter(duplicated(parcel_number)) %>%
+#   select(parcel_number, typeofwork, permitissuedate)
+
+tab_permit_byYr <-
+  allPermitProps %>%
+  filter(is.na(permittype) == F) %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tab_permitAll_byYr <- zoningPermitsProps_allYrs %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+tab_permitBoth_byYr <-
+  merge(tab_permit_byYr, tab_permitAll_byYr, by="year(permitissuedate)") %>%
+  dplyr::select(1,3,5) %>%
+  rename("year" = 1,
+        "permitOnVacant" = 2,
+        "permitPhilly" = 3) %>%
+  gather(key="variable", value="value", -year)
+
+
 # chart
 ggplot(data=tab_permitBoth_byYr, aes(x=year, y=value)) + 
   geom_line(aes(color=variable), size=1.5) + 
