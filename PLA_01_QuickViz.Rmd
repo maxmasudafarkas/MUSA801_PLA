@@ -1,0 +1,95 @@
+---
+title: "QuickViz"
+author: "Gillian"
+date: "2/21/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(sf)
+library(kableExtra)
+library(tigris)
+library(mapview)
+library(tidyverse)
+library(tidycensus)
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
+
+```{r}
+qBr <- function(df, variable, rnd) {
+  if (missing(rnd)) {
+    as.character(quantile(round(df[[variable]],2),
+                          c(.01,.2,.4,.6,.8), na.rm=T))
+    } else if (rnd == FALSE | rnd == F) {
+      as.character(formatC(quantile(df[[variable]],
+                                    c(.01,.2,.4,.6,.8), na.rm=T), digits = 3))
+    }
+}
+```
+
+
+```{r}
+# Gillian's working directory
+setwd("G:/UPenn/Practice/RA_prfEG/Zonal APC predictions")
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
+
+dat_tract_nozero <- readRDS("ridership_tractlevel_dataset_regressionReady_beforeApr26_noZero_1202.rds")
+phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
+# get geometry for the county of Philadelphia
+phlcounty <- tigris::counties(state = 42) %>%
+  filter(GEOID == '42101') %>%
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
+phltracts <- tigris::tracts(state = 42, county = 101) %>%
+  dplyr::select(GEOID, geometry)
+
+job_access <- dat_tract_nozero %>%
+  select(AFFGEOID_in, tr_Jobs_in_45mins) %>%
+  filter(is.na(tr_Jobs_in_45mins)==F) %>%
+  mutate(GEOID = substr(AFFGEOID_in, 10, 21)) %>%
+  group_by(GEOID) %>%
+  summarise(tr_Jobs_in_45mins = mean(as.numeric(tr_Jobs_in_45mins)))
+
+dat <- left_join(phltracts, job_access, by=c("GEOID"))
+
+zip <- st_read('https://opendata.arcgis.com/datasets/b54ec5210cee41c3a884c9086f7af1be_0.geojson') %>%
+  st_transform(st_crs(phlcrs))
+
+zillow_rent <- read.csv("./data/Zip_ZORI_AllHomesPlusMultifamily_Smoothed.csv") %>%
+  mutate(RegionName = as.character(RegionName))
+
+
+```
+
+```{r}
+palette5 <- c("#f0f9e8","#bae4bc","#7bccc4","#139ed1","#0868ac")
+
+dat %>%
+  ggplot() +
+  geom_sf(aes(fill = q5(tr_Jobs_in_45mins)), color = NA) +
+  scale_fill_manual(values = palette5,
+                        labels = qBr(dat, "tr_Jobs_in_45mins"),
+                    name = "") +
+  geom_sf(data = phlcounty, 
+          #color = "#ff5500",
+          fill = "transparent") + 
+  labs(title = "job accessible in 45 min transit", subtitle = "Philadelphia County 2019") +
+  mapTheme() +
+  theme(legend.position = "bottom",
+        panel.border = element_blank(),
+        panel.background = element_rect(fill = "#333333"),
+        panel.grid = element_blank(),
+        strip.background = element_rect(fill = "#333333"),
+        strip.text.x = element_text(size = 8, color = '#ffffff', hjust=0.01)
+        )
+```
+```{r}
+zRent <- left_join(zip, zillow_rent, by=c("CODE"="RegionName"))
+zRent %>%
+  ggplot +
+  geom_sf(aes(fill = q5(X2022.01)), color = NA) +
+  scale_fill_manual(values = palette5,
+                        labels = qBr(dat, "tr_Jobs_in_45mins"),
+                    name = "")
+```
