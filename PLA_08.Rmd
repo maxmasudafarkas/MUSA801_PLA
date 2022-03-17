@@ -22,7 +22,6 @@ Smart Cities Practicum
 knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T, cache.lazy = F)
 
 # LOAD PACKAGES
-
 library(basemaps)
 library(caret)
 library(geojsonR)
@@ -61,7 +60,6 @@ st_c <- st_coordinates
 
 
 # Aesthetic settings
-
 colors <- c('#222222',
             '#eeeeee')
 
@@ -74,6 +72,8 @@ palette <- c("#676767",
 
 ```
 
+
+***
 
 ## Introduction
 
@@ -102,7 +102,7 @@ A range of legal and policy options may be available to these stakeholders depen
 A variety of grassroots and legal advocacy organizations have taken up the mantle to explore these options, and more, to ensure that vacant lots remain in the care of the neighbors and communities who have invested in them for years. In collaboration with **Philadelphia Legal Assistance**, we are thus creating a web app to help residents, policymakers, and members of the public to understand the scope of this problem. The app will be designed to accomplish two, principal aims: (1) to visualize and explore the full portfolio of vacant properties in Philadelphia; and (2) to predict and rank which are under the greatest threat of development.
 
 
----
+***
 
 
 ## Exploratory Analysis
@@ -404,14 +404,6 @@ delinquenciesProps <- propertiesData %>%
 # save locally
 # saveRDS(delinquencies, file = "delinquencies.rds")
 
-```
-
-
-
-As seen in the map below, not all vacant properties in Philadelphia are tax delinquent, but a substantial share —29percent—a re.  Within certain legal parameters, the City may exercise its rights to foreclose on these properties, many of which serve the very community uses organizations such as Philadelphia Legal Assistance has set out to protect.
-
-
-```{r fig.width= 6, fig.height= 6}
 
 # map vacant properties (points)
 delinquenciesVacantProps <-
@@ -422,6 +414,15 @@ delinquenciesVacantProps <-
          delinquentType = ifelse(liens_sold_1990s == T, 2, delinquentStatus), # delinquent type: 0 not, 1 yes, 2 us bank
          delinquentType = replace_na(delinquentType, 0))
 
+
+```
+
+
+
+As seen in the map below, not all vacant properties in Philadelphia are tax delinquent, but a substantial share —29percent—a re.  Within certain legal parameters, the City may exercise its rights to foreclose on these properties, many of which serve the very community uses organizations such as Philadelphia Legal Assistance has set out to protect.
+
+
+```{r fig.width= 6, fig.height= 6}
 
 # Map delinquent properties in relation to Vacant properties
 ggplot() +
@@ -630,11 +631,11 @@ Once either the City or U.S. Bank petitions to foreclose on a tax delinquent pro
 # [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
 
 # OpenDataPhilly Endpoint of Property Assessment History:
-transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
+# transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
 # transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
 
 # OR load locally
-# transfers <- readRDS('../data/local/transfers.rds')
+transfers <- readRDS('../data/local/transfers.rds')
 
 # OpenDataPhilly - Transfers (48 variables)
 transfersVars <- 
@@ -683,11 +684,6 @@ transfersProps <- propertiesData %>%
   
 # save locally
 # saveRDS(transfers, file = "transfers.rds")
-
-
-g(transfersProps)
-
-
 
 ```
 
@@ -805,7 +801,6 @@ sheriffProps %>%
 
 
 ```{r data: permits}
-
 
 # [source]('https://www.opendataphilly.org/dataset/licenses-and-inspections-building-permits')
 
@@ -982,53 +977,47 @@ Race is one context in which this unevenness is apparent. Both vacant land and t
 color1 <- "#ff6e14" 
 color2 <- "#00bbc2"
 
+majMin <- c('nhMajMin','non-white','white')
+income <- c('nhIncome', 'below', 'over')
+tenure <- c('nhTenure', 'not-owner', 'owner')
 
-# define function
+
+# define function to sum
 getNeighFactor <-
-  function(dataframe, factor, name) {
+  function(dataframe, name, vars) {
     dataframe %>%
-      group_by(factor) %>%
+      group_by(dataframe[[vars[1]]]) %>%
       summarize(nhCount = sum(n())) %>%
       na.omit() %>%
-      mutate(factor = c('non-white','white'),
+      mutate(var = c(vars[2],vars[3]),
              dataset = name) %>%
+      dplyr::select(-1) %>%
       st_drop_geometry() 
   }
 
-getNeighFactor(vacantLandProps, 'vacantLand')
 
-
-
-# define function
-getNhMajMin <-
-  function(dataframe, name) {
-    dataframe %>%
-      group_by(nhMajMin) %>%
-      summarize(nhCount = sum(n())) %>%
-      na.omit() %>%
-      mutate(nhMajMin = c('non-white','white'),
-             dataset = name) %>%
-      st_drop_geometry() 
-  }
-
-# put together and ggplot
-grid.arrange(
-  rbind(
-    getNhMajMin(propertiesData, 'properties'),
-    getNhMajMin(vacantLandProps, 'vacantLand'),
-    getNhMajMin(delinquenciesProps, 'delinquencies'),
-    getNhMajMin(permitsProps, 'permits')) %>%
-    mutate(factor = factor(dataset, levels = c("properties","vacantLand","delinquencies","permits"))) %>%
+# define function to plot in one single chart
+plotNeighFactors <- 
+  function(factors, title) {
+    allFactors <- rbind(
+    getNeighFactor(propertiesData, 'properties', factors),
+    getNeighFactor(vacantLandProps, 'vacantLand', factors),
+    getNeighFactor(delinquenciesProps, 'delinquencies', factors),
+    getNeighFactor(permitsProps, 'permits', factors)) %>%
+    mutate(factor = factor(dataset, levels = c("properties", "vacantLand", "delinquencies", "permits")))
+    
+    # get bar chart
+    object1 <- allFactors %>%
     #filter(dataset != 'properties') %>%
-    ggplot(aes(nhMajMin, nhCount, fill = nhMajMin)) + 
+    ggplot(aes(var, nhCount, fill = var)) + 
     geom_bar(stat = "identity", width = .8) +
     scale_fill_manual(values = c(color1, color2)) +
     labs(title="Neighborhood effects",
-         subtitle = "Number of properties by Majority racial composition",
+         subtitle = title,
          x = "",
          y = "properties") +
-    geom_text(aes(label = nhMajMin, color = nhMajMin), vjust = -.5) +
-    scale_colour_manual(values=c(color1, color2)) +
+    geom_text(aes(label = var, color = var), vjust = -.5) +
+    scale_colour_manual(values = c(color1, color2)) +
     facet_wrap(~factor, ncol = 4, strip.position = "bottom") +
     plotTheme() +
     theme(axis.text.x = element_blank(),
@@ -1038,27 +1027,35 @@ grid.arrange(
           panel.grid.major.x = element_blank(),
           strip.background = element_rect(fill = "#ffffff"),
           strip.text.x = element_text(size = 16, color = colors[1], hjust=0.05)
-          ),
-  demographics %>%
-    dplyr::select(nhMajMin) %>%
-    mutate(nhMajMin = case_when(
-      nhMajMin == 0 ~ 'non-white',
-      nhMajMin == 1 ~ 'white')) %>%
-    ggplot() +
-    geom_sf(aes(fill = nhMajMin), color = NA) +
-    scale_fill_manual(values = c(color1, color2)) +
-    mapTheme() +
-    theme(axis.text.x = element_blank(),
-          legend.position = "none",
-          panel.border = element_blank(),
-          panel.background = element_rect(fill = "#ffffff"),
-          panel.grid.major.x = element_blank(),
-          ),
-  ncol = 2,
-  widths = c(2,1))
+          )
+    
+    # produce map
+    object2 <-
+      demographics %>%
+      dplyr::select(factors[1]) %>%
+      mutate(var = case_when(
+        .[[factors[1]]] == 0 ~ factors[2],
+        .[[factors[1]]] == 1 ~ factors[3])) %>%
+      dplyr::select(-factors[1]) %>%
+      ggplot() +
+      geom_sf(aes(fill = var), color = NA) +
+      scale_fill_manual(values = c(color1, color2)) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = "none",
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank())
+    
+    # put together and ggplot
+    grid.arrange(object1,
+                 object2,
+                 ncol = 2,
+                 widths = c(2, 1))
+    }
 
 
-g(vacantLandProps)
+plotNeighFactors(majMin, "Number of properties by Majority racial composition")
 
 ```
 
@@ -1074,66 +1071,7 @@ Median income is another demographic feature affecting the distribution of vacan
 color1 <- "#fc754c"
 color2 <- "#4c84f5" 
 
-# define function
-getNhIncome <-
-  function(dataframe, name) {
-    dataframe %>%
-      group_by(nhIncome) %>%
-      summarize(nhCount = sum(n())) %>%
-      na.omit() %>%
-      mutate(nhIncome = c('Below','Above'),
-             dataset = name) %>%
-      mutate(nhIncome = factor(nhIncome, levels = c('Below', 'Above'))) %>%
-      st_drop_geometry() 
-  }
-
-# put together and ggplot with a map
-grid.arrange(
-    rbind(
-      getNhIncome(propertiesData, 'properties'),
-      getNhIncome(vacantLandProps, 'vacantLand'),
-      getNhIncome(delinquenciesProps, 'delinquencies'),
-      getNhIncome(permitsProps, 'permits')) %>%
-      mutate(factor = factor(dataset, levels = c("properties","vacantLand","delinquencies","permits"))) %>%
-      #filter(dataset != 'properties') %>%
-      ggplot(aes(nhIncome, nhCount, fill = nhIncome)) + 
-      geom_bar(stat = "identity", width = .8) +
-      scale_fill_manual(values = c(color1, color2)) +
-      labs(title="Neighborhood effects",
-           subtitle = "Number of properties by Relation of Census Tract Median to County Average Household Income",
-           x = "",
-           y = "properties") +
-      geom_text(aes(label = nhIncome, color = nhIncome), vjust = -.5) +
-      scale_colour_manual(values=c(color1, color2)) +
-      facet_wrap(~factor, ncol = 4, strip.position = "bottom") +
-      plotTheme() +
-      theme(axis.text.x = element_blank(),
-            legend.position = "none",
-            panel.border = element_blank(),
-            panel.background = element_rect(fill = "#ffffff"),
-            panel.grid.major.x = element_blank(),
-            strip.background = element_rect(fill = "#ffffff"),
-          strip.text.x = element_text(size = 16, color = colors[1])
-            ),
-    demographics %>%
-      dplyr::select(nhIncome) %>%
-      mutate(nhIncome = case_when(
-        nhIncome == 0 ~ 'Above',
-        nhIncome == 1 ~ 'Below')) %>%
-      ggplot() +
-      geom_sf(aes(fill = nhIncome), color = NA) +
-      scale_fill_manual(values = c(color1, color2)) +
-      mapTheme() +
-      theme(axis.text.x = element_blank(),
-            legend.position = "none",
-            panel.border = element_blank(),
-            panel.background = element_rect(fill = "#ffffff"),
-            panel.grid.major.x = element_blank(),
-            strip.background = element_rect(fill = "#ffffff"),
-            strip.text.x = element_text(size = 16, color = colors[1], hjust=0.05)
-            ),
-    ncol = 2,
-    widths = c(2, 1))
+plotNeighFactors(income, "Number of properties by Relation of Census Tract Median to County Average Household Income")
 
 ```
 
@@ -1150,64 +1088,7 @@ Finally, whether a neighborhood is primarily composed of renters or owners appea
 color1 <- "#fc5a4c"
 color2 <- "#4cbaf5"
 
-# define function
-getNhTenure <-
-  function(dataframe, name) {
-    dataframe %>%
-      group_by(nhTenure) %>%
-      summarize(nhCount = sum(n())) %>%
-      na.omit() %>%
-      mutate(nhTenure = c('Not-owner', 'Owner'),
-             dataset = name) %>%
-      #mutate(nhTenure = factor(nhTenure, levels = c('Not-owner', 'Owner'))) %>%
-      st_drop_geometry() 
-  }
-
-# put together and ggplot
-grid.arrange(
-  rbind(
-    getNhTenure(propertiesData, 'properties'),
-    getNhTenure(vacantLandProps, 'vacantLand'),
-    getNhTenure(delinquenciesProps, 'delinquencies'),
-    getNhTenure(permitsProps, 'permits')) %>%
-    mutate(factor = factor(dataset, levels = c("properties","vacantLand","delinquencies","permits"))) %>%
-    #filter(dataset != 'properties') %>%
-    ggplot(aes(nhTenure, nhCount, fill = nhTenure)) + 
-    geom_bar(stat = "identity", width = .8) +
-    scale_fill_manual(values = c(color1, color2)) +
-    labs(title="Neighborhood effects",
-         subtitle = "Number of properties by Amount of Property Ownership",
-         x = "",
-         y = "properties") +
-    geom_text(aes(label = nhTenure, color = nhTenure), vjust = -.5) +
-    scale_colour_manual(values = c(color1, color2)) +
-    facet_wrap(~factor, ncol = 4, strip.position = "bottom") +
-    plotTheme() +
-    theme(axis.text.x = element_blank(),
-          legend.position = "none",
-          panel.border = element_blank(),
-          panel.background = element_rect(fill = "#ffffff"),
-          panel.grid.major.x = element_blank(),
-          strip.background = element_rect(fill = "#ffffff"),
-          strip.text.x = element_text(size = 16, color = colors[1])
-          ),
-  demographics %>%
-    dplyr::select(nhTenure) %>%
-    mutate(nhTenure = case_when(
-      nhTenure == 0 ~ 'Non-owner',
-      nhTenure == 1 ~ 'Owner')) %>%
-    ggplot() +
-    geom_sf(aes(fill = nhTenure), color = NA) +
-    scale_fill_manual(values = c(color1, color2)) +
-    mapTheme() +
-    theme(axis.text.x = element_blank(),
-          legend.position = "none",
-          panel.border = element_blank(),
-          panel.background = element_rect(fill = "#ffffff"),
-          panel.grid.major.x = element_blank(),
-          ),
-    ncol = 2,
-    widths = c(2, 1))
+plotNeighFactors(tenure, "Number of properties by Amount of Property Ownership")
 
 ```
 
@@ -1416,26 +1297,115 @@ tabPermitBothByYr %>%
 ```{r}
 
 
-permitsNet
+# if a parcel_number has multiple sales, we only get the latest one
+salesProps <- transfersProps %>%
+  drop_na(total_area) %>% 
+  mutate(document_type = as.character(document_type)) %>%  # to ignore Gillian deed factor levels
+  group_by(parcel_number) %>%
+  slice(which.max(sale_date)) %>% # to get only the latest one
+  mutate(year = year(sale_date),
+         month = month(sale_date),
+         quarter = case_when(
+           month %in% c(1, 2, 3) ~ 1,
+           month %in% c(4, 5, 6) ~ 2,
+           month %in% c(7, 8, 9) ~ 3,
+           month %in% c(10, 11, 12) ~ 4)) %>%
+  mutate(period = paste(year, quarter, sep='-')) %>%
+  mutate(sqftPrice = fair_market_value/total_area) %>%
+  st_sf()
 
 
-g(transfersProps)
+# All sales BEFORE 2019-01-01 and turn difference into days
+salesProps19 <-
+  salesProps %>%
+  filter(year < 2019) %>%
+  mutate(daysFromLastSale = difftime(as.Date.character('2019-01-01'), sale_date, units = 'days'))
+
+salesNet <- salesProps19 %>%
+  dplyr::select(daysFromLastSale) %>%
+  st_join(fishnet, left = F) %>%
+  group_by(uniqueID) %>%
+  summarize(permitCount = sum(n())) %>%
+  st_drop_geometry()
 
 
-z <- transfersProps %>%
-  drop_na(total_area) %>%
-  distinct(parcel_number, .keep_all = T)
+# create empty panel with all possible time/space combinations by fishnet grids
+basePanel <- 
+  expand.grid(period = unique(salesNet$period), 
+              uniqueID = unique(fishnet$uniqueID))
+
+# join panel to fishnet geometry
+salesPanel <- 
+  salesNet %>%
+  right_join(basePanel) %>% 
+  replace(is.na(.), 0) %>%
+  left_join(fishnet) %>%
+  st_sf()
+
+g(fishnet)
+
+
+
+# sales from 2016 to 2021
+salesLastFive <-
+  salesProps %>%
+  filter(year > 2016 && year <= 2021)
+
+
+# sales from 2018 to TRAIN
+sales2018 <-
+  salesProps %>%
+  filter(year == 2018)
+
+
+# sales from 2019 to TEST
+sales2019 <-
+  salesProps %>%
+  filter(year == 2019)
 
 
 
 
-  filter(is.na(total_area))
 
 
 
 ```
 
 
+```{r}
+
+animation <- 
+  ggplot() +
+  geom_sf(data = salesPanel, aes(fill = permitCount), color = NA) +
+  scale_fill_viridis(option = "magma",
+                     limits = c(0, 20),
+                     #trans = "log1p",
+                     breaks = c(0, 5, 10, 20),
+                     direction = 1) +
+  labs(title = "Sales in Philadelphia",
+       fill = "",
+       caption = "Source: OpenDataPhilly") +
+  guides(fill= guide_colorbar(barheight = 9, title.position = "bottom", label.position = "right")) +
+  geom_text(data = salesPanel,
+            aes(label = substr(period, 1, 4)),
+            size = 8, x = -Inf, y = Inf, vjust = 1.5, hjust = -.1, colour = "black") +
+    transition_manual(period) +
+    mapTheme() +
+    theme(legend.position = c(0.85, 0.2),
+          legend.background = element_blank(),
+          panel.border = element_blank(),
+          panel.background = element_rect(fill = colors[2]),
+          panel.grid = element_blank()
+          )
+
+animation
+
+animate(animation, duration=20, renderer = gifski_renderer())
+
+anim_save("sales", animation, duration=20, renderer = gifski_renderer())
+
+
+```
 
 
 
