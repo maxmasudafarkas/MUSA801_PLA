@@ -556,7 +556,7 @@ delinquenciesVacantProps %>%
 ---
 
 
-### US Bank Liens
+### US Bank Liens  
 
 
 A further subclass of vacant properties in Philadelphia are those to which taxes are owed to U.S. Bank, a private financial institution that purchased a large portfolio of tax liens from the City of Philadelphia in the late 1990’s. Among all vacant properties in Philadelphia, over 5 percent fall into this category and are subject to liens owned by U.S. Bank. Furthermore, of all vacant properties that are tax delinquent, nearly 20 percent are encumbered by debt to U.S. Bank, entitling it to initiate foreclosure proceedings just like the City. As will be seen later, a large share of recent sheriff’s sales has implicated properties encumbered by liens owned by U.S. Bank.
