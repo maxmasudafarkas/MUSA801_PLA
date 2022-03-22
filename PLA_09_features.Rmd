@@ -1,0 +1,318 @@
+---
+title: "Features collection"
+author: "Gillian"
+date: "3/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# R Markdown options
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T)
+
+# LOAD PACKAGES
+library(sf)
+library(riem)
+library(caret)
+library(spdep)
+library(knitr)
+library(gifski)
+library(tigris)
+library(mapview)
+library(geojsonR)
+library(tidyverse)
+library(lubridate)
+library(gganimate)
+library(gridExtra)
+library(kableExtra)
+library(ggplot2)
+library(basemaps)
+library(ggmap)
+library(viridis)
+library(tidycensus)
+
+# R options setup
+options(scipen = 999)
+options(tigris_class = "sf")
+
+# additional functions from PPA book
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+
+# function shortcuts
+g <- glimpse
+m <- mapview
+len <- length
+st_c <- st_coordinates
+
+# Gillian's working directory
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
+
+# color scheme
+# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
+```
+
+# functions
+```{r}
+# ggplot map theme for us to build on
+mapTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent") # this set the background transparent
+    )
+}
+mapGuide_ggplot <- function() {
+  guides(
+    colour = guide_legend(override.aes = list(size=5)) # this set the size for the point on legend
+    ) 
+}
+
+chartTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent"), # this set the background transparent
+    axis.text = element_text(size=12),
+    axis.title.x = element_text(size=12),
+    axis.title.y = element_text(size=12),
+  )
+}
+
+
+# save ggplot map configurations
+mapSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+chartSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+
+```
+
+
+# Read data that Adrian prepared
+
+
+```{r}
+
+# joined data
+
+vacantLandProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/vacantLandProps.rds")
+parcelsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/parcelProps.rds")
+permitsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/permitsProps.rds")
+transfersProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps.rds")
+delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+
+
+# joined data created by Gillian
+
+delinquenciesProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
+transfersProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
+zoningPermitsProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
+
+
+phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
+
+
+# get geometry for the county of Philadelphia
+phlcounty <- tigris::counties(state = 42) %>%
+  filter(GEOID == '42101') %>%
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
+
+
+```
+
+
+
+# fishnet
+
+```{r}
+
+fishnet <- phlcounty %>%
+  st_make_grid(.,
+               cellsize = 250, 
+               square = TRUE) %>%
+  .[phlcounty] %>%                     # clip to Philadelphia County boundary
+  st_sf() %>%
+  mutate(uniqueID = rownames(.))
+
+
+```
+
+
+
+
+# map of vacant properties
+
+```{r}
+# base_map <- get_stamenmap(c(left = -75.34937, bottom = 39.84524, right = -74.92109, top = 40.17457),
+#                            maptype = "terrain-background") # square
+base_map <- get_stamenmap(c(left = -75.54937, bottom = 39.84524, right = -74.82109, top = 40.17457),
+                           maptype = "terrain-background") # rectangle (wider)
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=vacantLandProps, color=gillianpick[2], size=0.01,
+           inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  mapTheme_ggplot()
+  
+#mapSave_ggplot("vacantProperties")
+```
+
+
+
+# median gross rent
+
+```{r}
+PhillyCensus <- 
+  get_acs(geography = "tract", 
+          variables = c("B25064_001"), 
+          year = 2018, 
+          state = "PA", 
+          geometry = TRUE, 
+          county=c("Philadelphia"),
+          output = "wide")
+```
+
+# demographic change
+```{r}
+demo14 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2014, 
+          state = "PA", 
+          geometry = TRUE, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop14 = B01001_001E,
+         white14 = B01001A_001E,
+         medInc14 = B19013_001E)
+demo15 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2015, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop15 = B01001_001E,
+         white15 = B01001A_001E,
+         medInc15 = B19013_001E)
+demo16 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2016, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop16 = B01001_001E,
+         white16 = B01001A_001E,
+         medInc16 = B19013_001E)
+demo17 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2017, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop17 = B01001_001E,
+         white17 = B01001A_001E,
+         medInc17 = B19013_001E)
+demo18 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2018, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop18 = B01001_001E,
+         white18 = B01001A_001E,
+         medInc18 = B19013_001E)
+demo19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001"), 
+          year = 2019, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop19 = B01001_001E,
+         white19 = B01001A_001E,
+         medInc19 = B19013_001E)
+
+# join them
+demo <- merge(merge(merge(merge(merge(demo14, demo15, 
+                                    by="GEOID"), 
+                        demo16, by="GEOID"), 
+                  demo17, by="GEOID"), 
+                demo18, by="GEOID"),
+              demo19, by="GEOID")
+demo <- demo %>% st_transform(st_crs(phlcrs))
+
+# join to fishnet
+demoNet <- demo %>%
+  aggregate(fishnet, mean) %>% 
+  mutate(uniqueID = rownames(.),) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) #%>%
+  #mutate(medInc14 = ifelse(is.na(medInc14)==TRUE, mean(medInc14, na.rm=T), medInc14))
+
+#saveRDS(demo, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo.rds")
+```
+
+# total consideration
+```{r}
+transfersProps_allYrs_totConsid <- transfersProps_allYrs %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num', 'document_type'='document_type', 'display_date'='display_date', 'address.x'='address', 'grantors'='grantors', 'grantees'='grantees', 'fair_market_value'='fair_market_value', 'property_count'='property_count')) %>%
+  select(-address.y) %>%
+  rename(address=address.x)
+
+transfersProps_allYrs_totConsid <- transfersProps_allYrs_totConsid %>% st_transform(st_crs(phlcrs))
+
+# join to fishnet
+considNet <- transfersProps_allYrs_totConsid %>%
+  select(total_consideration) %>%
+  aggregate(fishnet, mean) %>% 
+  mutate(uniqueID = rownames(.),) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) 
+
+#saveRDS(transfersProps_allYrs_totConsid, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs_totConsid.rds")
+```
+
+# sheriff sale
+```{r}
+sheriffSale <- delinquenciesProps_allYrs %>%
+  mutate(sheriff = ifelse(sheriff_sale=='Y', 1, 0)) %>%
+  select(sheriff, sale_date, sale_price)
+
+# join to fishnet
+sheriffNet <- sheriffSale %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum) %>% 
+  mutate(uniqueID = rownames(.),) %>%
+  mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) 
+```
+
+# join together
+```{r}
+featureNet <- left_join(demoNet %>% select(-GEOID), considNet %>% st_drop_geometry(), by=c('uniqueID', 'cvID'))
+featureNet <- left_join(featureNet, sheriffNet %>% st_drop_geometry(), by=c('uniqueID', 'cvID'))
+saveRDS(featureNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featureNet.rds")
+```
+
