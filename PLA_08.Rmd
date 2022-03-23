@@ -1302,9 +1302,9 @@ salesProps <- transfersProps %>%
   drop_na(total_area) %>% 
   mutate(document_type = as.character(document_type)) %>%  # to ignore Gillian deed factor levels
   group_by(parcel_number) %>%
-  slice(which.max(sale_date)) %>% # to get only the latest one
-  mutate(year = year(sale_date),
-         month = month(sale_date),
+  slice(which.max(display_date)) %>% # to get only the latest one
+  mutate(year = year(display_date),
+         month = month(display_date),
          quarter = case_when(
            month %in% c(1, 2, 3) ~ 1,
            month %in% c(4, 5, 6) ~ 2,
@@ -1316,17 +1316,53 @@ salesProps <- transfersProps %>%
 
 
 # All sales BEFORE 2019-01-01 and turn difference into days
-salesProps19 <-
+salesPropsDays <-
   salesProps %>%
   filter(year < 2019) %>%
   mutate(daysFromLastSale = difftime(as.Date.character('2019-01-01'), sale_date, units = 'days'))
 
-salesNet <- salesProps19 %>%
-  dplyr::select(daysFromLastSale) %>%
-  st_join(fishnet, left = F) %>%
-  group_by(uniqueID) %>%
-  summarize(permitCount = sum(n())) %>%
-  st_drop_geometry()
+
+# Filter sales by the last three years prior to 2018 and group by year
+salesNetYears <- 
+  salesProps %>%
+  filter(year < 2019 && year > 2015) %>%
+  st_join(fishnet, left = T) %>%
+  group_by(year, uniqueID) %>%
+  summarize(salesCount = sum(n())) %>%
+  st_drop_geometry() %>%
+  left_join(., fishnet) %>%
+  st_sf()
+
+
+salesNetPeriods <- 
+  salesProps %>%
+  filter(year < 2019 && year > 2015) %>%
+  st_join(fishnet, left = T)
+
+
+z <- salesNetYears %>% filter(year == 2018)
+
+g(z)
+g(fishnet)
+
+
+%>%
+  group_by(period, uniqueID) %>%
+  summarize(salesCount = sum(n())) %>%
+  st_drop_geometry() %>%
+  left_join(., fishnet) %>%
+  st_sf()
+
+
+
+
+
+
+
+
+m(salesNet, zcol = 'salesCount')
+
+
 
 
 # create empty panel with all possible time/space combinations by fishnet grids
@@ -1345,24 +1381,7 @@ salesPanel <-
 g(fishnet)
 
 
-
-# sales from 2016 to 2021
-salesLastFive <-
-  salesProps %>%
-  filter(year > 2016 && year <= 2021)
-
-
-# sales from 2018 to TRAIN
-sales2018 <-
-  salesProps %>%
-  filter(year == 2018)
-
-
-# sales from 2019 to TEST
-sales2019 <-
-  salesProps %>%
-  filter(year == 2019)
-
+??st_join
 
 
 
