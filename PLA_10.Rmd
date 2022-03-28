@@ -15,7 +15,6 @@ output:
 Smart Cities Practicum
 
 
-
 ```{r setup, include=FALSE}
 
 # R Markdown options
@@ -24,7 +23,7 @@ knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F
 # LOAD PACKAGES
 library(basemaps)
 library(caret)
-library(geojsonR)
+library(geojsonsf)
 library(gganimate)
 library(gifski)
 library(gridExtra)
@@ -91,12 +90,6 @@ palette <- c("#676767",
 # set CRS to Pennsylvania South NAD83 in meters
 phlcrs <- 'EPSG:32129'
 
-# get geometry for the county of Philadelphia
-phlcounty <-
-  phltracts %>%
-  st_union() %>%
-  st_transform(st_crs(phlcrs))
-
 # get geometry for tracts in Philadelphia
 phltracts <- 
   tigris::tracts(state = 42, county = 101) %>%
@@ -109,6 +102,11 @@ phlblocks <-
   dplyr::select(GEOID10, geometry) %>%
   st_transform(st_crs(phlcrs))
 
+
+# get geometry for the county of Philadelphia
+phlcounty <-
+  phltracts %>%
+  st_union()
 
 # set up the fishnet bins as the most granular unit of analysis
 fishnet <- phlcounty %>%
@@ -123,6 +121,7 @@ fishnet <- phlcounty %>%
 # Create a fishnet grid boundary of Philadelphia County
 phlFishnet <- fishnet %>%
   st_union()
+
 
 
 ### B. Demographic
@@ -248,7 +247,7 @@ vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0
 
 # Select useful variables --- NO GEOMETRY
 vacantLandVars <-
-  c(#"ADDRESS",                        # KEEP for JOIN CHECK
+  c("ADDRESS",                        # KEEP for JOIN CHECK
     "BLDG_DESC",                      # KEEP ------------------------------------Building description from OPA
     "OPA_ID",                         # KEEP to JOIN****
     #"ZONINGBASEDISTRICT",             # KEEP***
@@ -269,7 +268,126 @@ vacantLandProps <- propertiesData %>%
 # saveRDS(vacantLand, file = "vacantLand.rds")
 saveRDS(vacantLandProps, file = "vacantLandProps.rds")
 
+
+
+vacantLandJSON <-
+  vacantLandProps %>%
+  dplyr::select(geometry) %>%
+  sample_n(., 1000) %>%
+  sf_geojson(.)
+
+
+write(vacantLandJSON, "./json/vacantLand.json")
+
+
 ```
+
+
+
+```{r}
+
+majMinPolygon <- demographics %>%
+  filter(nhMajMin == 0) %>%
+  dplyr::select(geometry) %>%
+  st_union() %>%
+  st_sf()
+
+majMinJSON <- 
+  majMinPolygon %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) 
+
+write(majMinJSON, "./json/majMin.json")
+
+
+
+incomePolygon <- demographics %>%
+  filter(nhIncome == 0) %>%
+  dplyr::select(geometry) %>%
+  st_union() %>%
+  st_sf()
+
+incomeJSON <- 
+  incomePolygon %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.)
+
+write(incomeJSON, "./json/income.json")
+
+```
+
+
+
+
+
+
+```{r}
+
+
+kensingtonTracts <- 
+  c("42101014400",
+    "42101015600",
+    "42101015700",
+    "42101016200")
+
+
+kensington <- 
+  phltracts %>%
+  filter(GEOID %in% kensingtonTracts) %>%
+  st_union() %>%
+  st_sf()
+
+
+kensington %>%
+st_transform('EPSG:4326') %>%
+    st_bbox(kensington)
+
+
+kensingtonJSON <- 
+  kensington %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.)
+
+write(kensingtonJSON, "./json/kensington.json")
+
+
+# Get vacant lots in South Kensington
+kenVacantLand <-
+  vacantLandProps %>%
+  dplyr::select(geometry) %>%
+  st_filter(., kensington)
+
+kenVacantLandJSON <- 
+  kenVacantLand %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) %>%
+  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
+  gsub("\\}", ',', .)
+  
+write(kenVacantLandJSON, "./json/kenVacantLand.json")
+
+
+
+kenVacantProps <-
+  vacantLandProps %>%
+  dplyr::select(geometry, ADDRESS) %>%
+  filter(ADDRESS %in% c('1601 N LAWRENCE ST',
+                        '1603 N LAWRENCE ST',
+                        '1605 N LAWRENCE ST'
+                        ))
+
+kenVacantPropsJSON <- 
+  kenVacantProps %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) %>%
+  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
+  gsub("\\}", ',', .)
+  
+write(kenVacantPropsJSON, "./json/kenVacantProps.json")
+
+
+```
+
 
 
 
@@ -334,6 +452,48 @@ delinquenciesVacantProps <-
 
 ```
 
+```{r}
+
+# Get delinquent lots in South Kensington
+kenDelinquent <-
+  delinquenciesVacantProps %>%
+  filter(delinquentType != 0) %>%
+  dplyr::select(geometry) %>%
+  st_filter(., kensington)
+
+kenDelinquentJSON <- 
+  kenDelinquent %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) %>%
+  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
+  gsub("\\}", ',', .)
+  
+write(kenDelinquentJSON, "./json/kenDelinquent.json")
+
+
+# Get vacant lots in South Kensington
+kenUsBank <-
+  delinquenciesVacantProps %>%
+  filter(delinquentType == 2) %>%
+  dplyr::select(geometry) #%>%
+  #st_filter(., kensington)
+
+kenUsBankJSON <- 
+  kenUsBank %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) %>%
+  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
+  gsub("\\}", ',', .)
+  
+write(kenUsBankJSON, "./json/kenUsBankAll.json")
+
+
+m(kensington)
+m(kenVacantLand)
+
+
+
+```
 
 
 ---
@@ -440,6 +600,38 @@ sheriffProps <-
 
 
 ```
+
+
+```{r}
+
+
+# Get vacant lots in South Kensington
+kenSheriff <-
+  vacantDelinquenciesProps %>%
+  # filter(allSheriffSales == 1) %>%
+  dplyr::select(street_address, geometry) %>%
+  st_filter(., kensington)
+
+kenSheriffJSON <- 
+  kenSheriff %>%
+  st_transform('EPSG:4326') %>%
+  sf_geojson(.) %>%
+  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
+  gsub("\\}", ',', .)
+  
+write(kenSheriffJSON, "./json/kenSheriff.json")
+
+
+
+
+
+m(kenSheriff)
+
+
+```
+
+
+
 
 
 ## Demand-side data
@@ -679,8 +871,8 @@ extYearPanel <-
 # Select the zoning permits over the four-year interval (16, 17, 18 and 19)
 permitsNetYears <-
   permitsNet %>%
-  filter(year < endYr,
-         year > startYr) %>%
+  filter(year <= endYr,
+         year >= startYr) %>%
   group_by(year, uniqueID) %>%
   summarize(permitCount = sum(n())) %>%
   st_drop_geometry() %>%
@@ -766,8 +958,8 @@ salesProps <-
 salesPropsNet <- 
   salesProps %>%
   dplyr::select(all_of(salesVars)) %>%
-  filter(year > startYr,
-         year < endYr,
+  filter(year <= endYr,
+         year >= startYr,
          total_consideration < 4e8,
          total_consideration > 1e4) %>%  # filter outliers and most "symbolic" transfers
   mutate(sqftPrice = ifelse(total_area > 0, total_consideration/total_area, 0)) %>% # calculate price by sqft
@@ -1019,7 +1211,7 @@ for (i in startYr:endYr) {
   crimeYears <- 
     rbind(crimeYears,
           fishnet %>%
-            mutate(crimeNN = nn_function(st_c(st_coid(.)), st_c(data), 3),
+            mutate(crimeNN = nn_function(st_c(st_centroid(.)), st_c(data), 3),
                    year = i))
 }
 
@@ -1034,6 +1226,9 @@ crimeNetYears <-
       right_join(yearPanel) %>%
       replace(is.na(.), 0),
     st_drop_geometry(crimeYears))
+
+
+??get.knnx()
 
 
 ```
@@ -1062,13 +1257,13 @@ exposureNet <-
   na.omit() %>%
   ungroup() %>%
   mutate(schoolsNN =
-           nn_function(st_c(st_coid(.)), st_c(schoolsData), 3),
+           nn_function(st_c(st_centroid(.)), st_c(schoolsData), 3),
          parksNN =
-           nn_function(st_c(st_coid(.)), st_c(parksData), 3),
+           nn_function(st_c(st_centroid(.)), st_c(parksData), 3),
          transitNN =
-           nn_function(st_c(st_coid(.)), st_c(transitData), 3),
+           nn_function(st_c(st_centroid(.)), st_c(transitData), 3),
          licensesNN = 
-           nn_function(st_c(st_coid(.)), st_c(licensesData), 3)) %>%
+           nn_function(st_c(st_centroid(.)), st_c(licensesData), 3)) %>%
   st_drop_geometry()
 
 
@@ -1078,6 +1273,7 @@ exposureNetYears <-
     exposureNet %>%
       right_join(yearPanel),
     crimeNetYears)
+
 
 
 ```
@@ -1187,8 +1383,8 @@ completeNet <-
   left_join(debtNetYears) %>%
   left_join(individualOwnersNetYears) %>%
   left_join(vacantNet) %>%
-  left_join(jobsNetYears) %>%
-  left_join(exposureNetYears)
+  left_join(jobsNetYears) #%>%
+  #left_join(exposureNetYears)
 
 saveRDS(completeNet, "completeNetYears.Rds")
 
