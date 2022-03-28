@@ -1,0 +1,493 @@
+---
+title: "Features collection"
+author: "Gillian"
+date: "3/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# R Markdown options
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T)
+
+# LOAD PACKAGES
+library(sf)
+library(riem)
+library(caret)
+library(spdep)
+library(knitr)
+library(gifski)
+library(tigris)
+library(mapview)
+library(geojsonR)
+library(tidyverse)
+library(lubridate)
+library(gganimate)
+library(gridExtra)
+library(kableExtra)
+library(ggplot2)
+library(basemaps)
+library(ggmap)
+library(viridis)
+library(tidycensus)
+
+# R options setup
+options(scipen = 999)
+options(tigris_class = "sf")
+
+# additional functions from PPA book
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+
+# function shortcuts
+g <- glimpse
+m <- mapview
+len <- length
+st_c <- st_coordinates
+
+# Gillian's working directory
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
+
+# color scheme
+# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
+```
+
+# functions
+```{r}
+# ggplot map theme for us to build on
+mapTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent") # this set the background transparent
+    )
+}
+mapGuide_ggplot <- function() {
+  guides(
+    colour = guide_legend(override.aes = list(size=5)) # this set the size for the point on legend
+    ) 
+}
+
+chartTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent"), # this set the background transparent
+    axis.text = element_text(size=12),
+    axis.title.x = element_text(size=12),
+    axis.title.y = element_text(size=12),
+  )
+}
+
+
+# save ggplot map configurations
+mapSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+chartSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+
+```
+
+
+# Read data that Adrian prepared
+
+
+```{r}
+
+# joined data
+
+vacantLandProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/vacantLandProps.rds")
+parcelsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/parcelProps.rds")
+permitsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/permitsProps.rds")
+transfersProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps.rds")
+delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+
+
+# joined data created by Gillian
+
+delinquenciesProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
+transfersProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
+zoningPermitsProps_allYrs <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
+
+
+phlcrs <- 'EPSG:32129' #'EPSG:3364' #'EPSG:4269'
+
+
+# get geometry for the county of Philadelphia
+phlcounty <- tigris::counties(state = 42) %>%
+  filter(GEOID == '42101') %>%
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
+
+
+```
+
+
+
+# fishnet
+
+```{r}
+
+fishnet <- phlcounty %>%
+  st_make_grid(.,
+               cellsize = 250, 
+               square = TRUE) %>%
+  .[phlcounty] %>%                     # clip to Philadelphia County boundary
+  st_sf() %>%
+  mutate(uniqueID = as.numeric(rownames(.)))
+
+
+```
+
+
+
+
+# map of vacant properties
+
+```{r}
+# base_map <- get_stamenmap(c(left = -75.34937, bottom = 39.84524, right = -74.92109, top = 40.17457),
+#                            maptype = "terrain-background") # square
+base_map <- get_stamenmap(c(left = -75.54937, bottom = 39.84524, right = -74.82109, top = 40.17457),
+                           maptype = "terrain-background") # rectangle (wider)
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=vacantLandProps, color=gillianpick[2], size=0.01,
+           inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  mapTheme_ggplot()
+  
+#mapSave_ggplot("vacantProperties")
+```
+
+
+
+# median gross rent
+
+```{r}
+PhillyCensus <- 
+  get_acs(geography = "tract", 
+          variables = c("B25064_001"), 
+          year = 2018, 
+          state = "PA", 
+          geometry = TRUE, 
+          county=c("Philadelphia"),
+          output = "wide")
+```
+
+# demographic change
+```{r}
+demo14 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2014, 
+          state = "PA", 
+          geometry = TRUE, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -B25064_001M, -NAME) %>%
+  rename(pop14 = B01001_001E,
+         white14 = B01001A_001E,
+         medInc14 = B19013_001E,
+         medRent14 = B25064_001E)
+demo15 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2015, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -B25064_001M, -NAME) %>%
+  rename(pop15 = B01001_001E,
+         white15 = B01001A_001E,
+         medInc15 = B19013_001E,
+         medRent15 = B25064_001E)
+demo16 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2016, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -B25064_001M, -NAME) %>%
+  rename(pop16 = B01001_001E,
+         white16 = B01001A_001E,
+         medInc16 = B19013_001E,
+         medRent16 = B25064_001E)
+demo17 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2017, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -B25064_001M, -NAME) %>%
+  rename(pop17 = B01001_001E,
+         white17 = B01001A_001E,
+         medInc17 = B19013_001E,
+         medRent17 = B25064_001E)
+demo18 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2018, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -B25064_001M, -NAME) %>%
+  rename(pop18 = B01001_001E,
+         white18 = B01001A_001E,
+         medInc18 = B19013_001E,
+         medRent18 = B25064_001E)
+demo19 <- 
+  get_acs(geography = "tract", 
+          variables = c("B01001_001", "B01001A_001", "B19013_001", "B25064_001"), 
+          year = 2019, 
+          state = "PA", 
+          geometry = F, 
+          county=c("Philadelphia"),
+          output = "wide") %>%
+  dplyr::select(-B01001_001M, -B01001A_001M, -B19013_001M, -NAME) %>%
+  rename(pop19 = B01001_001E,
+         white19 = B01001A_001E,
+         medInc19 = B19013_001E,
+         medRent19 = B25064_001E)
+
+# join them
+demo <- merge(merge(merge(merge(merge(demo14, demo15, 
+                                    by="GEOID"), 
+                        demo16, by="GEOID"), 
+                  demo17, by="GEOID"), 
+                demo18, by="GEOID"),
+              demo19, by="GEOID")
+demo_joined <- demo %>% 
+  st_transform(st_crs(phlcrs))
+demo_joined <- demo_joined %>%
+  mutate(perc_white14 = white14/pop14,
+         perc_white15 = white15/pop15,
+         perc_white16 = white16/pop16,
+         perc_white17 = white17/pop17,
+         perc_white18 = white18/pop18,
+         perc_white19 = white19/pop19,
+         ) %>%
+  mutate(# white
+         # 1 year change
+         perc_whiteChange1415 = perc_white15 - perc_white14,
+         perc_whiteChange1516 = perc_white16 - perc_white15,
+         perc_whiteChange1617 = perc_white17 - perc_white16,
+         perc_whiteChange1718 = perc_white18 - perc_white17,
+         perc_whiteChange1819 = perc_white19 - perc_white18,
+         # 2 year change
+         perc_whiteChange1416 = perc_white16 - perc_white14,
+         perc_whiteChange1517 = perc_white17 - perc_white15,
+         perc_whiteChange1618 = perc_white18 - perc_white16,
+         perc_whiteChange1719 = perc_white19 - perc_white17,
+         ) %>%
+  mutate(# pop
+         # 1 year change
+         perc_popChange1415 = (pop15-pop14)/pop14,
+         perc_popChange1516 = (pop16-pop15)/pop15,
+         perc_popChange1617 = (pop17-pop16)/pop16,
+         perc_popChange1718 = (pop18-pop17)/pop17,
+         perc_popChange1819 = (pop19-pop18)/pop18,
+         # 2 year change
+         perc_popChange1416 = (pop16-pop14)/pop14,
+         perc_popChange1517 = (pop17-pop15)/pop15,
+         perc_popChange1618 = (pop18-pop16)/pop16,
+         perc_popChange1719 = (pop19-pop17)/pop17,
+         ) %>%
+  mutate(# median income
+         # 1 year change
+         perc_medIncChange1415 = (medInc15-medInc14)/medInc14,
+         perc_medIncChange1516 = (medInc16-medInc15)/medInc15,
+         perc_medIncChange1617 = (medInc17-medInc16)/medInc16,
+         perc_medIncChange1718 = (medInc18-medInc17)/medInc17,
+         perc_medIncChange1819 = (medInc19-medInc18)/medInc18,
+         # 2 year change
+         perc_medIncChange1416 = (medInc16-medInc14)/medInc14,
+         perc_medIncChange1517 = (medInc17-medInc15)/medInc15,
+         perc_medIncChange1618 = (medInc18-medInc16)/medInc16,
+         perc_medIncChange1719 = (medInc19-medInc17)/medInc17,
+         ) %>%
+  mutate(# rent
+         # 1 year change
+         perc_medRentChange1415 = (medRent15-medRent14)/medRent15,
+         perc_medRentChange1516 = (medRent16-medRent15)/medRent15,
+         perc_medRentChange1617 = (medRent17-medRent16)/medRent16,
+         perc_medRentChange1718 = (medRent18-medRent17)/medRent17,
+         perc_medRentChange1819 = (medRent19-medRent18)/medRent18,
+         # 2 year change
+         perc_medRentChange1416 = (medRent16-medRent14)/medRent14,
+         perc_medRentChange1517 = (medRent17-medRent15)/medRent15,
+         perc_medRentChange1618 = (medRent18-medRent16)/medRent16,
+         perc_medRentChange1719 = (medRent19-medRent17)/medRent17,
+    ) %>%
+  replace(is.na(.), 0)
+
+
+
+all_var_list <- c(var_pop, var_popChange1yr)
+var_pop <- c('pop14', 'pop15', 'pop16', 'pop17', 'pop18', 'pop19')
+var_perc_popChange1yr <- c(
+  'perc_popChange1415', 'perc_popChange1516', 'perc_popChange1617', 'perc_popChange1718', 'perc_popChange1819')
+var_perc_popChange2yr <- c(
+  'perc_popChange1416', 'perc_popChange1517', 'perc_popChange1618', 'perc_popChange1719')
+var_perc_white <- c('perc_white14', 'perc_white15', 'perc_white16', 'perc_white17', 'perc_white18', 'perc_white19')
+var_perc_whiteChange1yr <- c(
+  'perc_whiteChange1415', 'perc_whiteChange1516', 'perc_whiteChange1617', 'perc_whiteChange1718', 'perc_whiteChange1819')
+var_perc_whiteChange2yr <- c(
+  'perc_whiteChange1416', 'perc_whiteChange1517', 'perc_whiteChange1618', 'perc_whiteChange1719')
+var_medInc <- c('medInc14', 'medInc15', 'medInc16', 'medInc17', 'medInc18', 'medInc19')
+var_perc_medIncChange1yr <- c(
+  'perc_medIncChange1415', 'perc_medIncChange1516', 'perc_medIncChange1617', 'perc_medIncChange1718', 'perc_medIncChange1819')
+var_perc_medIncChange2yr <- c(
+  'perc_medIncChange1416', 'perc_medIncChange1517', 'perc_medIncChange1618', 'perc_medIncChange1719')
+var_medRent <- c('medRent14', 'medRent15', 'medRent16', 'medRent17', 'medRent18', 'medRent19')
+var_perc_medRentChange1yr <- c(
+  'perc_medRentChange1415', 'perc_medRentChange1516', 'perc_medRentChange1617', 'perc_medRentChange1718', 'perc_medRentChange1819')
+var_perc_medRentChange2yr <- c(
+  'perc_medRentChange1416', 'perc_medRentChange1517', 'perc_medRentChange1618', 'perc_medRentChange1719')
+
+create_feature <- function(var_list){
+  demo_df <- data.frame(matrix(ncol = 3, nrow = 0))
+  for (var in var_list) {
+    year = paste(20, str_sub(var, -2, -1), sep="")
+    popData <-
+        st_interpolate_aw(demo_joined[var], fishnet, extensive=TRUE) %>%
+        as.data.frame(.) %>%
+        left_join(fishnet,.,by="geometry") %>%
+        rename(var_list=var) %>%
+        mutate(year=year)  %>% st_drop_geometry() %>%
+        select(year, uniqueID, var_list)
+    demo_df <- rbind(demo_df, popData)
+  }
+  return(demo_df)
+}
+pop_df <- create_feature(var_pop) %>%
+  rename(pop=var_list)
+perc_popChange1yr_df <- create_feature(var_perc_popChange1yr) %>%
+  rename(perc_popChange1yr=var_list)
+perc_popChange2yr_df <- create_feature(var_perc_popChange2yr) %>%
+  rename(perc_popChange2yr=var_list)
+perc_white_df <- create_feature(var_perc_white) %>%
+  rename(perc_white=var_list)
+perc_whiteChange1yr_df <- create_feature(var_perc_whiteChange1yr) %>%
+  rename(perc_whiteChange1yr=var_list)
+perc_whiteChange2yr_df <- create_feature(var_perc_whiteChange2yr) %>%
+  rename(perc_whiteChange2yr=var_list)
+medInc_df <- create_feature(var_medInc) %>% 
+  rename(medInc=var_list)
+perc_medIncChange1yr_df <- create_feature(var_perc_medIncChange1yr) %>%
+  rename(perc_medIncChange1yr=var_list)
+perc_medIncChange2yr_df <- create_feature(var_perc_medIncChange2yr) %>%
+  rename(perc_medIncChange2yr=var_list)
+medRent_df <- create_feature(var_medRent) %>%
+  rename(medRent=var_list)
+perc_medRentChange1yr_df <- create_feature(var_perc_medRentChange1yr) %>%
+  rename(perc_medRentChange1yr=var_list)
+perc_medRentChange2yr_df <- create_feature(var_perc_medRentChange2yr) %>%
+  rename(perc_medRentChange2yr=var_list)
+
+demo_features <- cbind(pop_df, 
+                       perc_white_df %>% select(perc_white), 
+                       medInc_df %>% select(medInc), 
+                       medRent_df %>% select(medRent)) 
+
+demo_features <- left_join(demo_features, perc_popChange1yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_popChange2yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_whiteChange1yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_whiteChange2yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_medIncChange1yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_medIncChange2yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_medRentChange1yr_df, by=c('uniqueID', 'year')) %>%
+  left_join(perc_medRentChange2yr_df, by=c('uniqueID', 'year')) 
+
+demo_features <- demo_features %>%
+  replace(is.na(.), 0)
+
+#saveRDS(demo_features, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo_features.rds")
+```
+
+# total consideration - adrian
+```{r}
+transfersProps_allYrs_totConsid <- transfersProps_allYrs %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num', 'document_type'='document_type', 'display_date'='display_date', 'address.x'='address', 'grantors'='grantors', 'grantees'='grantees', 'fair_market_value'='fair_market_value', 'property_count'='property_count')) %>%
+  select(-address.y) %>%
+  rename(address=address.x)
+
+transfersProps_allYrs_totConsid <- transfersProps_allYrs_totConsid %>% st_transform(st_crs(phlcrs)) %>%
+  filter(total_consideration < 4e8,
+         total_consideration > 1e4) %>%
+  mutate(year = year(display_date))
+
+
+
+# join to fishnet
+considNet <- transfersProps_allYrs_totConsid %>%
+  select(total_consideration) %>%
+  aggregate(fishnet, mean, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),) #%>%
+  #mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) 
+
+#saveRDS(transfersProps_allYrs_totConsid, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs_totConsid.rds")
+```
+
+# sheriff sale
+```{r}
+sheriffSale <- delinquenciesProps_allYrs %>%
+  mutate(sheriff = ifelse(sheriff_sale=='Y', 1, 0),
+         year = year(sale_date)) %>%
+  select(sheriff, year) %>%
+  filter(year %in% c(2016, 2017, 2018, 2019))
+sheriffSale16 <- sheriffSale %>%
+  filter(year == 2016)
+sheriffSale17 <- sheriffSale %>%
+  filter(year == 2017)
+sheriffSale18 <- sheriffSale %>%
+  filter(year == 2018)
+sheriffSale19 <- sheriffSale %>%
+  filter(year == 2019)
+
+# join to fishnet
+sheriffNet16 <- sheriffSale16 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2016) 
+sheriffNet17 <- sheriffSale17 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2017) 
+sheriffNet18 <- sheriffSale18 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2018) 
+sheriffNet19 <- sheriffSale19 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2019) 
+sheriffNet <- rbind(sheriffNet16, sheriffNet17, sheriffNet18, sheriffNet19) %>%
+  replace(is.na(.), 0)
+saveRDS(sheriffNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
+```
+
+# join together
+```{r}
+featureNet <- left_join(demoNet %>% select(-GEOID), considNet %>% st_drop_geometry(), by=c('uniqueID'))
+featureNet <- left_join(featureNet, sheriffNet %>% st_drop_geometry(), by=c('uniqueID'))
+saveRDS(featureNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featureNet.rds")
+```
+

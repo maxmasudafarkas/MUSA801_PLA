@@ -1,0 +1,989 @@
+---
+title: "first round of modeling"
+author: "Gillian"
+date: "3/22/2022"
+output: html_document
+---
+# set up
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# LOAD PACKAGES
+library(sf)
+library(riem)
+library(caret)
+library(spdep)
+library(knitr)
+library(gifski)
+library(tigris)
+library(mapview)
+library(geojsonR)
+library(tidyverse)
+library(lubridate)
+library(gganimate)
+library(gridExtra)
+library(kableExtra)
+library(ggplot2)
+library(basemaps)
+library(ggmap)
+library(viridis)
+library(tidycensus)
+library(ggforce)
+library(pROC)
+library(yardstick)
+library(ggcorrplot)
+library(randomForest)
+library(Hmisc)
+library(stargazer)
+library(ROCR)
+
+# R options setup
+options(scipen = 999)
+options(tigris_class = "sf")
+
+# additional functions from PPA book
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+
+# function shortcuts
+g <- glimpse
+m <- mapview
+len <- length
+st_c <- st_coordinates
+
+# Gillian's working directory
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
+
+# color scheme
+# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
+
+# Aesthetic settings
+colors <- c('#222222',
+            '#eeeeee')
+
+palette <- c("#676767",
+             "#18b6c4",   # properties
+             "#18c493",   # vacantLots
+             "#f7c457",   # delinquencies
+             "#f79c57",   # us bank liens
+             "#f76957")   # sheriff sales
+```
+
+```{r function}
+# Function to plot histogram (used for IV distribution)
+plotDV_histogram <- function(dataset) {
+  nm <- names(dataset)
+  for (i in seq_along(nm)) {
+    print(
+      ggplot(dataset) +
+        geom_histogram(aes_string(x=nm[i]), fill = "#18B6C4", color="white") +
+        labs(title = paste("Distribution of ", nm[i])))
+  }
+}
+
+# Functions to get bivariate regression result
+do.regression <- function (dep, indep) {
+  modsum <- summary(lm (dep ~ indep))
+  modtab <- c(
+    modsum$coefficients[, 1], 
+    modsum$coefficients[, 2], 
+    modsum$coefficients[, 3],    
+    modsum$coefficients[, 4],  
+    modsum$adj.r.squared)
+  round(modtab,digits=6)
+}
+
+get_bivReg <- function(dat_dep, dat_ind, method="original") {
+  tab <- c()
+  rname <- c()
+  dep_i = 0
+  ind_i = 0
+  
+  for ( y in dat_dep ) {
+    if ( ind_i == length(dat_dep) ) {
+        break
+    }
+    dep_i = dep_i + 1
+    
+    if ( method == "logY" ) {
+      dep_name = paste("log", colnames(dat_dep[dep_i]), sep="_")
+    } else if ( method == "logposY" ) {
+      dep_name = paste("logpos", colnames(dat_dep[dep_i]), sep="_")
+    } else {
+      dep_name = colnames(dat_dep[dep_i])
+    }
+    
+    for ( x in dat_ind ) {
+      if ( ind_i == length(dat_ind) ) {
+        ind_i = 0
+      }
+      ind_i = ind_i + 1
+      ind_name = colnames(dat_ind[ind_i])
+      res <- do.regression ( y, x )
+      tab <- rbind(tab, res)
+      rname <- append(rname, paste(dep_name, ind_name, sep="~"))
+    }
+  }
+  
+  tab <- as.data.frame(tab)
+  colnames(tab) = c("Int","Beta","stErrorInt", "StErrorBeta","TSTATInt", "TSTATBeta", "PVALINT", "PVALBeta", "R2")
+  rownames(tab) = rname
+  
+  return(tab)
+}
+
+# Function to plot scatterplot: change in ridership and IV
+plot_XY <- function (ind_var_list, dep_var) {
+  dat_by.stop_ACS <- featuresNet %>%
+    dplyr::select(dep_var, ind_var_list) %>%
+     gather(key, value, -dep_var) %>%
+     mutate(key = fct_relevel(key, ind_var_list))
+   
+  plot <- ggplot(dat_by.stop_ACS) +
+    geom_point(aes_string("value", dep_var), color="#18B6C4") +
+    facet_wrap_paginate(~ key, scales = "free", ncol = 2, nrow = 2)
+  
+  for (i in seq(n_pages(plot))) {
+  print(
+    ggplot(dat_by.stop_ACS) +
+      geom_point(aes_string("value", dep_var), color="#18B6C4") +
+      #geom_text(data = cor.demographic, aes(label = paste("r =", round(correlation, 2))),
+              #x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
+      geom_smooth(method = "glm", aes_string(x="value", y=dep_var), color="#10767F", size = 1)+
+      #facet_wrap(~ key, scales = "free") +
+      scale_y_continuous(limits=c(-1.5, 30)) +
+      scale_x_continuous(name = substitute(ind_var_list)) +
+      facet_wrap_paginate(~ key, scales = "free_x", ncol = 2, nrow = 2, page=i) +
+      labs(title = paste("relationship between", substitute(dep_var), "and predictor variables"),
+           subtitle = "(continous outcomes for numeric variables)") +
+      theme(legend.position = "right")
+    )
+    
+    ggsave(paste("visualizations/2nd_presentation/scatterplots/", substitute(ind_var_list), i, ".png", sep=""), #Gillian's path
+         plot=last_plot(), dpi = 300,
+         width = 8, height = 5, units = "in")
+  }
+}
+```
+
+```{r read in data}
+##- join data Adrian and I worked on separately together -##
+# permitsNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNet.rds") %>%
+#   mutate(uniqueID = as.numeric(uniqueID)) 
+# demoNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo_features.rds")%>%
+#   mutate(year = as.numeric(year))
+# sheriffNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
+# adrianNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears2.rds") %>%
+#   mutate(uniqueID = as.numeric(uniqueID))
+# adrianNet2 <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears.rds") %>%
+#   mutate(uniqueID = as.numeric(uniqueID)) %>%
+#   dplyr::select(uniqueID, year, licenses:crimeNN) %>%
+#   st_drop_geometry()
+# 
+# featuresNet <- left_join(permitsNet, demoNet, by=c("uniqueID", "year")) %>%
+#   left_join(sheriffNet, by=c("uniqueID", "year")) %>%
+#   left_join(adrianNet, by=c("uniqueID", "year")) %>%
+#   left_join(adrianNet2, by=c("uniqueID", "year"))
+# 
+# featuresNet <- featuresNet %>%
+#   dplyr::select(-permitCount.y, -salesCount.y, -meanSqftPrice.y, -geometry.y) %>%
+#   rename(geometry = geometry.x,
+#          permitCount = permitCount.x, 
+#          salesCount = salesCount.x, 
+#          meanSqftPrice = meanSqftPrice.x) %>%
+#   arrange(uniqueID) %>%
+#   mutate(permitDummy = as.factor(ifelse(permitCount>0, 1, 0))) %>% 
+#   ungroup()
+
+#saveRDS(featuresNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds")
+
+featuresNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds") %>%
+  mutate(permitDummy_numeric = ifelse(permitCount>0, 1, 0)) #random forest does not take factor in well, so calculated the dummy again here
+```
+
+# EDA
+```{r histogram}
+plotDV_histogram(featuresNet)
+```
+
+```{r batch scatterplot}
+var_time <- c("year", "lag1years", "lag2years")
+var_activities <- c("salesCount", "indOwnerDelta")
+var_price <- c("meanSqftPrice", "meanPrice", "medRent", "perc_medRentChange1yr", "perc_medRentChange2yr", "meanDebt")
+var_vacant <- c("cumulativeVacantArea", "totalVacantLots", "sheriff")
+var_pop <- c("pop", "perc_popChange1yr", "perc_popChange2yr")
+var_race <- c("perc_white", "perc_whiteChange1yr", "perc_whiteChange2yr")
+var_inc <- c("medInc", "perc_medIncChange1yr", "perc_medIncChange2yr", "jobCount")
+var_amenities <- c("licenses", "licensesNN", "parks", "parksNN", "schools", "schoolsNN", "transit", "transitNN", "crime", "crimeNN")
+
+# plot_XY(var_time, "permitCount")
+# plot_XY(var_activities, "permitCount")
+# plot_XY(var_price, "permitCount")
+# plot_XY(var_vacant, "permitCount")
+# plot_XY(var_pop, "permitCount")
+# plot_XY(var_race, "permitCount")
+# plot_XY(var_inc, "permitCount")
+# plot_XY(var_amenities, "permitCount")
+```
+
+```{r box plot and map}
+# set color palette
+color1 <- "#18B6C4" 
+color2 <- "#18B6C4"
+
+featuresNet_sf <- featuresNet %>% 
+  st_sf()
+
+featuresNet_noGeo <- featuresNet %>%
+  select(-geometry, -permitDummy, -permitDummy_numeric)
+
+for (var in colnames(featuresNet_noGeo)) {
+  plot1 <-
+    featuresNet %>%
+    ggplot() +
+          geom_boxplot(aes_string(x=var, y="permitDummy", fill = "permitDummy"), color="#808080") +
+          coord_flip() +
+          scale_fill_manual(values = c(color1, color2)) +
+          scale_y_discrete(labels=c("no permits", "had permits")) +
+          labs(title= "Feature:",
+           subtitle = var,
+           x = "",
+           y = "") +
+          theme(
+            #axis.text.x = element_blank(),
+            legend.position = "none",
+            plot.background = element_blank(),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            strip.background = element_rect(fill = "#ffffff"),
+            strip.text.y = element_text(size = 12, color = colors[1], hjust=0.05)
+            )
+  
+  plot2 <- 
+    featuresNet_sf %>%
+    ggplot() +
+      geom_sf(data=featuresNet_sf, aes_string(fill=var), color=NA, inherit.aes = FALSE) +
+      scale_fill_viridis(option = "mako",
+                         name = "value",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = 1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+  
+  plot <- grid.arrange(plot1,
+                       plot2,
+                       ncol = 2,
+                       widths = c(2, 3))
+  
+  ggsave(paste("visualizations/2nd_presentation/boxMap/", var, ".png", sep=""), #Gillian's path
+         plot, dpi = 300,
+         width = 8, height = 5, units = "in")
+}
+```
+
+
+# feature selection
+```{r individual linear regression}
+#### no transformation ####
+dat_dep <- featuresNet %>%
+  dplyr::select(permitCount)
+dat_ind <- featuresNet %>%
+  dplyr::select(-uniqueID, -permitCount, -year, -geometry, -permitDummy_numeric, -permitDummy)
+
+reg <- as.data.frame(get_bivReg(dat_dep, dat_ind))
+# write.csv(reg, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg.csv")
+```
+
+```{r correlation}
+var_corr <- dat_ind 
+
+#rcorr(as.matrix(var_corr[]), type = c("pearson"))
+
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across numeric variables")
+
+# for presentation
+var_corr_some <- var_corr %>%
+  select(salesCount, indOwnerDelta, 
+          meanSqftPrice,
+          medRent, perc_medRentChange2yr,
+          meanDebt,
+          totalVacantLots,
+          pop, perc_popChange2yr,
+          perc_white, perc_whiteChange2yr, 
+          medInc, perc_medIncChange2yr,
+          licenses, parksNN, schoolsNN, transitNN, crime)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_some), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_some),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across important numeric variables")
+
+# group 1 - sales count and med rent
+var_corr_sales <- var_corr %>%
+  select(salesCount, 
+          medRent, perc_medRentChange2yr)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_sales), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_sales),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of development prospects")
+
+# group 2 - demographics
+var_corr_demo <- var_corr %>%
+  select(pop, perc_popChange2yr,
+          perc_white, perc_whiteChange2yr, 
+          medInc, perc_medIncChange2yr)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_demo), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_demo),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of demographics")
+
+# group 3 - amenities
+var_corr_amen <- var_corr %>%
+  select(licenses, licensesNN, parks, parksNN, schools, schoolsNN, transit, transitNN, crime, crimeNN)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_amen), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_amen),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of amenities")
+
+```
+
+# model fitting
+## create testing and training set
+```{r train test split}
+# hold out on 2019
+featuresNet19 <- featuresNet %>%
+  filter(year==2019)
+
+# train and test on 2016, 2017, 2018
+featuresNetrest <- featuresNet %>%
+  filter(year %in% c(2016, 2017, 2018))
+
+set.seed(326)
+trainIndex <- createDataPartition(featuresNetrest$permitCount, p = .75,
+                                  list = FALSE,
+                                  times = 1)
+train <- featuresNetrest[trainIndex,] 
+test <- featuresNetrest[-trainIndex,] # test data within training data for tuning
+```
+
+
+## modeling - binomial
+```{r bim0}
+# model0: select the vars with highest R sq every theoretical group
+biM0 <-
+    glm(as.factor(permitDummy) ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          medRent + perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop + perc_popChange2yr +
+          perc_white + perc_whiteChange2yr + 
+          medInc + + perc_medIncChange2yr +
+          licenses + parksNN + schoolsNN + transitNN + crime, family="binomial"(link="logit"), 
+      data = train)
+
+summary(biM0)
+
+biM0_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(biM0, test, type="response"))
+
+#calculate AUC
+biM0_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM0_out$probs))
+biM0_AUC # 0.8559
+
+#calculate threshold and confusion matrix to evaluate model
+pred <- prediction(biM0_out[is.na(biM0_out$probs)==FALSE,]$probs, biM0_out[is.na(biM0_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM0_out <- 
+  biM0_out %>%
+  mutate(predOutcome  = as.factor(ifelse(biM0_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(biM0_out$predOutcome, biM0_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8388, sens: 0.6683, spec: 0.876
+```
+
+```{r bim1a}
+# model1a: eliminate correlated vars, keeping salesCount
+biM1a <-
+    glm(permitDummy ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          perc_medRentChange2yr + #medRent + 
+          meanDebt +
+          totalVacantLots +
+          perc_popChange2yr + #pop + 
+          perc_whiteChange2yr + #perc_white + 
+          medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime, 
+        family="binomial"(link="logit"), 
+      data = train)
+
+summary(biM1a)
+
+biM1a_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(biM1a, train, type="response"))
+
+#calculate AUC
+biM1a_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM1a_out$probs))
+biM1a_AUC # 0.8508
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM1a_out[is.na(biM1a_out$probs)==FALSE,]$probs, biM1a_out[is.na(biM1a_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+F.score_table[which.max(F.score_table$F.score),]
+
+biM1a_out <- 
+  biM1a_out %>%
+  mutate(predOutcome  = as.factor(ifelse(biM1a_out$probs > 0.25 , 1, 0)))
+
+caret::confusionMatrix(biM1a_out$predOutcome, biM1a_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8504, sens: 0.60, spec: 0.90
+```
+
+```{r bim1b}
+# model1b: eliminate correlated vars, keeping medRent
+biM1b <-
+    glm(permitDummy ~ 
+          year +
+          indOwnerDelta + #salesCount + 
+          meanSqftPrice + 
+          perc_medRentChange2yr + medRent + 
+          meanDebt +
+          totalVacantLots +
+          perc_popChange2yr + #pop + 
+          perc_whiteChange2yr + #perc_white + 
+          medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime, 
+        family="binomial"(link="logit"), 
+      data = train)
+
+summary(biM1b)
+
+biM1b_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(biM1b, test, type="response"))
+
+#calculate AUC
+biM1b_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM1b_out$probs))
+biM1b_AUC # 0.8561
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM1b_out[is.na(biM1b_out$probs)==FALSE,]$probs, biM1b_out[is.na(biM1b_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM1b_out <- 
+  biM1b_out %>%
+  mutate(predOutcome  = as.factor(ifelse(biM1b_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(biM1b_out$predOutcome, biM1b_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8439, sens: 0.638, spec: 0.888
+```
+
+```{r bim2}
+# model2: eliminate correlated vars, keeping medRent, eliminate insignificant vars
+biM2 <-
+    glm(permitDummy ~ 
+          #year +
+          indOwnerDelta + #salesCount + 
+          meanSqftPrice + 
+          medRent + #perc_medRentChange2yr + 
+          #meanDebt +
+          totalVacantLots +
+          perc_popChange2yr + #pop + 
+          perc_whiteChange2yr + #perc_white + 
+          medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime, 
+        family="binomial"(link="logit"), 
+      data = train)
+
+summary(biM2)
+
+biM2_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(biM2, test, type="response"))
+
+#calculate AUC
+biM2_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM2_out$probs))
+biM2_AUC # 0.8558
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM2_out[is.na(biM2_out$probs)==FALSE,]$probs, biM2_out[is.na(biM2_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM2_out <- 
+  biM2_out %>%
+  mutate(predOutcome  = as.factor(ifelse(biM2_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(biM2_out$predOutcome, biM2_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8457, sens: 0.6335, spec: 0.8922
+```
+
+```{r stargazer}
+# stargazer::stargazer(biM0, biM1a, biM1b, biM2,
+#          out="biMs_0326.html")
+```
+
+
+## modeling - random forest 
+```{r}
+rfM0 <- 
+  randomForest(permitDummy_numeric ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          medRent + perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop + perc_popChange2yr +
+          perc_white + perc_whiteChange2yr + 
+          medInc + + perc_medIncChange2yr +
+          licenses + parksNN + schoolsNN + transitNN + crime, 
+      data = train)
+
+importance(rfM0)
+rfM0_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(rfM0, test, type="response"))
+
+#calculate AUC
+rfM0_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(rfM0_out$probs))
+rfM0_AUC #0.8793
+
+#calculate threshold and confusion matrix
+pred <- prediction(rfM0_out[is.na(rfM0_out$probs)==FALSE,]$probs, rfM0_out[is.na(rfM0_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+rfM0_out <- 
+  rfM0_out %>%
+  mutate(predOutcome  = as.factor(ifelse(rfM0_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(rfM0_out$predOutcome, rfM0_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8467, sens: 0.6754, spec: 0.8841
+```
+
+```{r}
+# use caret to tune - took too long, save for later
+# control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# set.seed(0326)
+# tunegrid <- expand.grid(.mtry=c(3:5))
+# metric <- "Accuracy"
+# rf_gridsearch <- train(as.factor(permitDummy) ~
+#           year +
+#           salesCount + indOwnerDelta + 
+#           meanSqftPrice + 
+#           medRent + perc_medRentChange2yr +
+#           meanDebt +
+#           totalVacantLots +
+#           pop + perc_popChange2yr +
+#           perc_white + perc_whiteChange2yr + 
+#           medInc + + perc_medIncChange2yr +
+#           licenses + parksNN + schoolsNN + transitNN + crime,
+#                        data=train, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
+# print(rf_gridsearch)
+# plot(rf_gridsearch)
+```
+
+```{r}
+rfM1 <- 
+  randomForest(permitDummy_numeric ~ 
+          #year +
+          #indOwnerDelta + #salesCount + 
+          meanSqftPrice + 
+          perc_medRentChange2yr + medRent + 
+          #meanDebt +
+          totalVacantLots +
+          perc_popChange2yr + #pop + 
+          perc_whiteChange2yr + #perc_white + 
+          medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime,
+      data = train)
+
+# importance(rfM1)
+rfM1_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(rfM1, test, type="response"))
+
+#calculate AUC
+rfM1_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(rfM1_out$probs))
+rfM1_AUC #0.8601
+
+#calculate threshold and confusion matrix
+pred <- prediction(rfM1_out[is.na(rfM1_out$probs)==FALSE,]$probs, rfM1_out[is.na(rfM1_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+rfM1_out <-
+  rfM1_out %>%
+  mutate(predOutcome  = as.factor(ifelse(rfM1_out$probs > fscore$cutoff, 1, 0)))
+
+caret::confusionMatrix(rfM1_out$predOutcome, rfM1_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8371, sens: 0.6754, spec: 0.8723
+```
+
+```{r sample tree}
+x <- ctree(rfM1, test)
+plot(x, type="simple")
+# plot(x)
+feature_rfM0 <- importance(rfM0)  
+feature_rfM0 <- data.frame(Feature = row.names(feature_rfM0), Importance = feature_rfM0[, 1])
+
+plot_feature_bar <- 
+  ggplot(feature_rfM0, aes(x= reorder(Feature, Importance) , y = Importance) ) +
+  geom_bar(stat = "identity", fill = palette[6]) +
+  coord_flip() +
+  theme_light(base_size = 12) +
+  xlab("") + 
+  ggtitle("Important Features in Random Forest\n") +
+  theme(plot.title = element_text(size=12))
+  
+plot_feature_bar
+
+```
+
+# result (on 2019 set)
+```{r map of continuous score}
+tab_preds <-         
+  featuresNet19 %>%
+    st_sf() %>%
+    mutate(probs = predict(rfM0, featuresNet19, type="response"),
+           predOutcome = as.factor(ifelse(probs >= 0.3944, 1, 0)))
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=probs), color=NA, inherit.aes = FALSE) +
+  scale_fill_viridis(option = "mako",
+                         name = "development risk",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = 1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+```
+
+```{r map of 1 or 0}
+colors <- c('#414081',
+            '#D0EFD8')
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=predOutcome), color=NA, inherit.aes = FALSE) +
+          scale_fill_manual(values = c(colors[1], colors[2]), 
+                            labels=c("No", "Yes"), 
+                            name="predicted development") +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=as.factor(permitDummy)), color=NA, inherit.aes = FALSE) +
+          scale_fill_manual(values = c(colors[1], colors[2]), 
+                            labels=c("No", "Yes"), 
+                            name="observed development") +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+##- archived for side to side comparison plots -##
+# predsForMap <-         
+#   featuresNet19 %>%
+#     st_sf() %>%
+#     mutate(probs = predict(rfM0, featuresNet19, type="response") ,
+#             Threshold_39.4_Pct = as.factor(ifelse(probs >= 0.3944, 1, 0))) %>%
+#     dplyr::select(permitDummy, Threshold_39.4_Pct) %>%
+#     gather(Variable,Value, -geometry) %>%
+#     st_cast("POLYGON")
+
+# xyC <- function(aPolygonSF) {
+#   as.data.frame(
+#     cbind(x=st_coordinates(st_centroid(aPolygonSF))[,1],
+#           y=st_coordinates(st_centroid(aPolygonSF))[,2]))
+# } 
+# 
+# ggplot() +
+#   geom_point(data=predsForMap, aes(x=xyC(predsForMap)[,1], y=xyC(predsForMap)[,2], colour=Value)) +
+#   facet_wrap(~Variable) +
+#   #scale_colour_manual(values = palette2b, labels=c("No Change","New Development"),
+#   #                    name="") +
+#   labs(title="Development predictions - yes or no development") + 
+#   theme(legend.position="bottom") +
+#   mapTheme()
+```
+
+# Validation
+```{r final confusion matrix}
+cm <- tab_preds %>%
+  conf_mat(permitDummy, predOutcome)
+
+autoplot(cm, type = "heatmap") +
+  scale_fill_viridis(option="mako", 
+                     begin = 0.3, end = 0.5,
+                     alpha=0.4)
+```
+
+```{r binary prob density}
+##- probabilities density -##
+ggplot(tab_preds, aes(probs)) +
+  geom_density(aes(fill=permitDummy), alpha=0.5) +
+  #scale_fill_manual(values = palette2,
+  #                  labels=c("No Change","New Development")) +
+  labs(title = "Density plot of test set predicted probabilities",
+       x="Predicted Probabilities",y="Density") +
+  plotTheme()
+```
+```{r LOGO-cv accuracy}
+phlcrs <- 'EPSG:32129'
+phil_neigh <- read_sf("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA/data/Neighborhoods_Philadelphia/Neighborhoods_Philadelphia.shp") %>%
+  st_transform(st_crs(phlcrs))
+
+featuresNet_neigh <-
+  st_centroid(featuresNet19 %>% st_sf()) %>%
+  st_join(dplyr::select(phil_neigh, NAME)) %>%
+  na.omit()
+
+crossValidate <- function(dataset, id, dependentVariable, indVariables) {
+
+  allPredictions <- data.frame()
+  cvID_list <- unique(dataset[[id]])
+  
+  for (i in cvID_list) {
+  
+    thisFold <- i
+    cat("This hold out fold is", thisFold, "\n")
+  
+    fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+    fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+    
+    model <- randomForest(permitDummy_numeric ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          medRent + perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop + perc_popChange2yr +
+          perc_white + perc_whiteChange2yr + 
+          medInc + + perc_medIncChange2yr +
+          licenses + parksNN + schoolsNN + transitNN + crime, 
+      data = fold.train)
+    
+    thisPrediction <- 
+      mutate(fold.test, Prediction = ifelse(predict(model, fold.test, type = "response")>0.3944, 1, 0))
+    
+      
+    allPredictions <-
+      rbind(allPredictions, thisPrediction)
+      
+    }
+    return(allPredictions)
+}
+
+get_accuracy <- function(cm){
+    acc <- cm$overall[['Accuracy']]
+    return(acc)
+}
+
+finalIndVars <- c("year", "salesCount", "indOwnerDelta", 
+          "meanSqftPrice", 
+          "medRent", "perc_medRentChange2yr",
+          "meanDebt",
+          "totalVacantLots",
+          "pop", "perc_popChange2yr",
+          "perc_white", "perc_whiteChange2yr", 
+          "medInc", 'perc_medIncChange2yr',
+          "licenses", "parksNN", "schoolsNN", "transitNN", "crime")
+
+spatialCV <- crossValidate(
+  dataset = featuresNet_neigh,
+  id = "NAME",
+  dependentVariable = "permitDummy_numeric",
+  indVariables = finalIndVars) %>%
+    dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
+allvalues <- unique(union(spatialCV$prediction, spatialCV$permitDummy_numeric))
+cv_result <- #accuracy
+  spatialCV %>%
+    dplyr::group_by(cvID) %>%
+    dplyr::summarize(accuracy = get_accuracy(caret::confusionMatrix(factor(Prediction, levels = allvalues), factor(permitDummy, levels = allvalues)))) %>%
+  ungroup()
+saveRDS(cv_result, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
+spatialCV <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
+phil_neigh_cv <- left_join(phil_neigh, cv_result, by=c("NAME"="cvID"))
+
+ggplot() +
+  geom_sf(data=phil_neigh_cv, aes(fill=accuracy)) +
+  scale_fill_viridis(option = "mako",
+                         name = "value",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = -1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+```
+
+```{r}
+crossValidate_score <- function(dataset, id, dependentVariable, indVariables) {
+
+  allPredictions <- data.frame()
+  cvID_list <- unique(dataset[[id]])
+  
+  for (i in cvID_list) {
+  
+    thisFold <- i
+    cat("This hold out fold is", thisFold, "\n")
+  
+    fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+    fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+  
+    model <- randomForest(permitDummy_numeric ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          medRent + perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop + perc_popChange2yr +
+          perc_white + perc_whiteChange2yr + 
+          medInc + + perc_medIncChange2yr +
+          licenses + parksNN + schoolsNN + transitNN + crime, 
+      data = fold.train)
+    
+    thisPrediction <- 
+      mutate(fold.test, Prediction = predict(model, fold.test, type = "response"))
+    
+      
+    allPredictions <-
+      rbind(allPredictions, thisPrediction)
+      
+    }
+    return(allPredictions)
+}
+
+spatialCV_score <- crossValidate_score(
+  dataset = featuresNet_neigh,
+  id = "NAME",
+  dependentVariable = "permitDummy_numeric",
+  indVariables = finalIndVars) %>%
+    dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
+
+cv_result_avg <- 
+  spatialCV_score %>%
+    dplyr::group_by(cvID) %>% 
+    dplyr::summarize(mean_score = mean(Prediction)) %>%
+  ungroup()
+
+```
+
+
+
+
+```{r goodness of fit}
+##- archived, not working -##
+# ctrl <- trainControl(method = "cv", number = 10, classProbs=TRUE, summaryFunction=twoClassSummary)
+# train$permitDummy <- factor(train$permitDummy)
+# cvFit <- train(permitDummy ~ 
+#           #year +
+#           indOwnerDelta + #salesCount + 
+#           meanSqftPrice + 
+#           medRent + #perc_medRentChange2yr + 
+#           #meanDebt +
+#           totalVacantLots +
+#           perc_popChange2yr + #pop + 
+#           perc_whiteChange2yr + #perc_white + 
+#           medInc + perc_medIncChange2yr +
+#           licenses, # + parksNN + schoolsNN + transitNN + crime, 
+#           data = featuresNet19 %>% mutate(permitDummy = ifelse(permitDummy=="yes","c1.yes","c2.no")), 
+#           method="glm", family="binomial"(link="logit"),
+#           metric="ROC", trControl = ctrl)
+# Error in apply(testOutput[, lev], 1, function(x) x/sum(x)) : dim(X) must have a positive length
+```
