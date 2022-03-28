@@ -1,0 +1,1226 @@
+---
+title: "Philadelphia Legal Assistance: Adverse Possession"
+author: "Adrian Leon, Max Masuda-Farkas, Gillian Xuezhu Zhao"
+date: "28/01/2022"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+
+# Philadelphia Legal Assistance
+
+Smart Cities Practicum
+
+
+
+```{r setup, include=FALSE}
+
+# R Markdown options
+knitr::opts_chunk$set(echo = T, warning = F, error = F, message = F, results = F, cache=T, cache.lazy = F)
+
+# LOAD PACKAGES
+library(basemaps)
+library(caret)
+library(geojsonR)
+library(gganimate)
+library(gifski)
+library(gridExtra)
+library(kableExtra)
+library(knitr)
+library(lubridate)
+library(mapview)
+library(riem)
+library(scales)
+library(sf)
+library(spdep)
+library(tidycensus)
+library(tidyverse)
+library(tigris)
+library(viridis)
+
+# R options setup
+options(scipen = 999)
+options(tigris_class = "sf")
+options(tigris_use_cache = T)
+options(knitr.graphics.error = F)
+
+# additional functions from PPA book
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+
+# function shortcuts
+g <- glimpse
+m <- mapview
+len <- length
+st_c <- st_coordinates
+
+
+# Aesthetic settings
+colors <- c('#222222',
+            '#eeeeee')
+
+palette <- c("#676767",
+             "#18b6c4",   # properties
+             "#18c493",   # vacantLots
+             "#f7c457",   # delinquencies
+             "#f79c57",   # us bank liens
+             "#f76957")   # sheriff sales
+
+```
+
+
+***
+
+## Introduction
+
+
+
+***
+
+
+## Exploratory Analysis
+
+
+```{r data: base geometry}
+
+### A. Geographic boundaries
+# set CRS to Pennsylvania South NAD83 in meters
+phlcrs <- 'EPSG:32129'
+
+# get geometry for the county of Philadelphia
+phlcounty <-
+  phltracts %>%
+  st_union() %>%
+  st_transform(st_crs(phlcrs))
+
+# get geometry for tracts in Philadelphia
+phltracts <- 
+  tigris::tracts(state = 42, county = 101) %>%
+  dplyr::select(GEOID, geometry) %>%
+  st_transform(st_crs(phlcrs))
+
+# get geometry for blocks in Philadelphia
+phlblocks <- 
+  tigris::blocks(state = 42, county = 101) %>%
+  dplyr::select(GEOID10, geometry) %>%
+  st_transform(st_crs(phlcrs))
+
+
+# set up the fishnet bins as the most granular unit of analysis
+fishnet <- phlcounty %>%
+  st_make_grid(.,
+               cellsize = 250, 
+               square = TRUE) %>%
+  .[phlcounty] %>%                     # clip to Philadelphia County boundary
+  st_sf() %>%
+  mutate(uniqueID = rownames(.))
+
+
+# Create a fishnet grid boundary of Philadelphia County
+phlFishnet <- fishnet %>%
+  st_union()
+
+
+### B. Demographic
+
+# Get API key loaded locally
+censusKey <-  read_file('../censusapikey.R')
+
+# load census api key from local file
+census_api_key(censusKey)
+
+# set consulted year
+year <- 2019
+
+# get variables names and codes
+acsVariableList <- load_variables(year, "acs5", cache = TRUE)
+
+# set census variables to consult
+censusVars <-
+  c("B02001_001E", # Total population 
+    "B11001_002E", # Total households
+    "B02001_002E", # Total white population 
+    "B19013_001E", # Median household income
+    "B25003_001E") # Tenure of household
+
+# Get the data
+demographics <-
+  get_acs(geography = "tract",
+          variables = censusVars,
+          year = year,
+          state = 42,
+          county = 101,
+          geometry= T,
+          output = "wide") %>%
+  st_transform(st_crs(phlcrs)) %>%
+  rename(totalPop = "B02001_001E",
+         totalHHs = "B11001_002E",
+         whitePop = "B02001_002E",
+         medHHInc = "B19013_001E",
+         tenureHH = "B25003_001E") %>%
+  dplyr::select(-NAME, -starts_with("B"))%>%
+  replace(is.na(.), 0) %>%
+  mutate(pctWhite = ifelse(totalPop > 0, whitePop / totalPop, 0),
+         pctTenur = ifelse(totalPop > 0, tenureHH / totalPop, 0)) %>%
+  mutate(nhMajMin = ifelse(pctWhite > 0.5, 1, 0),
+         nhIncome = ifelse(medHHInc > mean(.$medHHInc), 1, 0),
+         nhTenure = ifelse(pctTenur > 0.5, 1, 0)) %>%
+  dplyr::select(nhMajMin, nhIncome, nhTenure) %>%
+  st_transform(st_crs(phlcrs))
+  
+
+# Create a mask for the majority minority census tracts fishnet cells
+majminFishnet <- 
+  demographics %>%
+  filter(nhMajMin == 1) %>%
+  st_union() %>%
+  st_intersection(fishnet) %>%
+  fishnet[.,] %>%
+  st_union()
+
+
+### C. Properties
+
+# [source]('https://www.opendataphilly.org/dataset/opa-property-assessments')
+
+# Load properties from 1999 until now from the Office of Property Assessment.
+# properties <- read_csv('https://opendata-downloads.s3.amazonaws.com/opa_properties_public.csv')
+
+# OR local load
+properties <- readRDS('../data/local/properties.rds')
+
+# Selected variables of interest
+propertiesVars <-
+  c("category_code",                  # KEEP ------------------------------------determines if it is VACANT LAND
+    #"exterior_condition",             # KEEP ------------------------------------how the exterior appears based on observation.
+    #"frontage",                       # MODEL
+    #"location",                       # KEEP for JOIN check****
+    "market_value",                   # KEEP ------------------------------------the certified market value of the property.
+    #"off_street_open",                # UNNECESSARY
+    "owner_1",                        # KEEP
+    "owner_2",                        # KEEP
+    "parcel_number",                  # KEEP to JOIN***
+    #"parcel_shape",                   # MODEL
+    #"registry_number",                # KEEP to JOIN
+    "sale_date",                      # KEEP
+    #"sale_price",                     # KEEP
+    #"taxable_land",                   # MODEL
+    #"topography",                     # MODEL
+    "total_area",                     # KEEP
+    #"unfinished",                     # UNNECESSARY
+    "year_built",                     # KEEP
+    "zoning",                         # KEEP
+    "pin",                            # KEEP to JOIN ****
+    "lat",                            # KEEP****
+    "lng")                            # KEEP****
+
+
+# Data wrangling
+propertiesData <- properties %>%
+  dplyr::select(propertiesVars) %>%
+  filter(!is.na(lat), !is.na(lng)) %>%              
+  st_as_sf(coords = c("lat","lng"), crs = 4326) %>%
+  st_transform(st_crs(phlcrs)) %>%
+  st_join(demographics)
+
+
+# save locally
+# saveRDS(properties, file = "properties.rds")
+
+```
+
+
+---
+
+### Properties and Vacant Lots
+
+
+```{r data: vacant land}
+
+# [source]('https://www.opendataphilly.org/dataset/vacant-property-indicators')
+
+# OpenDataPhilly Vacant Property Indicator - Lots
+vacantLand <- read_csv('https://opendata.arcgis.com/datasets/19c35fb02d544a9bad0032b58268c9f9_0.csv')
+
+# Select useful variables --- NO GEOMETRY
+vacantLandVars <-
+  c(#"ADDRESS",                        # KEEP for JOIN CHECK
+    "BLDG_DESC",                      # KEEP ------------------------------------Building description from OPA
+    "OPA_ID",                         # KEEP to JOIN****
+    #"ZONINGBASEDISTRICT",             # KEEP***
+    "LAND_RANK")                      # KEEP?
+
+# Data wrangling
+vacantLandData <- vacantLand %>%
+  dplyr::select(vacantLandVars) %>%
+  mutate(vacant = 'vacant')
+
+
+# JOIN to propertiesData
+# propertiesData <---> vacantLandData
+vacantLandProps <- propertiesData %>%
+  inner_join(vacantLandData, by=c('parcel_number'='OPA_ID'))
+
+# save locally
+# saveRDS(vacantLand, file = "vacantLand.rds")
+saveRDS(vacantLandProps, file = "vacantLandProps.rds")
+
+```
+
+
+
+---
+
+
+### Tax Delinquent Vacant Lots
+
+```{r supply tax delinquencies}
+
+# [source]('https://www.opendataphilly.org/dataset/property-tax-delinquencies')
+
+# Real Estate Delinquencies from OpenData Philly:
+delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
+
+# Variables - Tax Delinquencies (53 vars)
+delinquenciesVars <-
+  c("opa_number",                     # KEEP to JOIN****
+    #"street_address",                 # KEEP to JOIN check****
+    #"owner",                          # UNNECESSARY
+    #"co_owner",                       # UNNECESSARY
+    "total_due",                      # KEEP ------------------------------------The total amount owner owes.
+    "is_actionable",                  # KEEP?*** --------------------------------Action can be taken against the delinquent property.
+    "num_years_owed",                 # KEEP ***for adverse possession reference
+    "most_recent_year_owed",          # KEEP for reference
+    "oldest_year_owed",               # KEEP for reference
+    "most_recent_payment_date",       # KEEP for reference
+    #"year_of_last_assessment",        # KEEP for reference
+    "total_assessment",               # KEEP for reference
+    #"building_code",                  # ???? ------------------------------------Building codes describe the building.
+    #"general_building_description",   # ???? ------------------------------------General description of how the building is used.
+    #"building_category",              # ???? ------------------------------------Type of Building Group (residential, commercial, etc.).
+    "sheriff_sale",                   # KEEP*** ---------------------------------Property is in the Sheriff Sale Process (any stage).
+    "liens_sold_1990s",               # KEEP*** ---------------------------------Property was included in 1997 Lien Sale.
+    "liens_sold_2015")                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
+
+
+# Data wrangling
+delinquenciesData <- delinquencies %>%
+  dplyr::select(delinquenciesVars) %>%
+  mutate(opa_number = sprintf("%09d", opa_number))
+
+
+# JOIN to properties
+# propertiesData <---> delinquenciesData
+delinquenciesProps <- propertiesData %>%
+  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
+  st_sf()
+
+# save locally
+# saveRDS(delinquencies, file = "delinquencies.rds")
+
+# map vacant properties (points)
+delinquenciesVacantProps <-
+  left_join(vacantLandProps,
+            delinquenciesProps %>% st_drop_geometry() %>% mutate(delinquentStatus = 1),
+            by = "parcel_number") %>%
+  mutate(delinquentStatus = ifelse(is.na(delinquentStatus) == F, 1, 0),
+         delinquentType = ifelse(liens_sold_1990s == T, 2, delinquentStatus), # delinquent type: 0 not, 1 yes, 2 us bank
+         delinquentType = replace_na(delinquentType, 0))
+
+
+```
+
+
+
+---
+
+
+### Sheriff Sales
+
+
+```{r data: transfers}
+
+# [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
+
+# OpenDataPhilly Endpoint of Property Assessment History:
+# transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
+# transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
+
+# OR load locally
+transfers <- readRDS('../data/local/transfers.rds')
+
+# OpenDataPhilly - Transfers (48 variables)
+transfersVars <- 
+  c("document_type",                # KEEP*** -----------------------------------refers to type of Real Estate Transaction
+    "display_date",                 # KEEP***
+    "street_address",               # KEEP for JOIN check
+    "grantors",                     # KEEP --------------------------------------seller (on deeds), or borrower (on mortgages)
+    "grantees",                     # KEEP --------------------------------------buyer, recipient, new owner, or lien holder
+    "total_consideration",          # KEEP?** -----------------------------------good exchanged for the real estate (usually money)
+    #"assessed_value",               # KEEP?** -----------------------------------assess value by OPA
+    #"common_level_ratio",           # UNNECESSARY -------------------------------fair market : assessment values ratio
+    #"fair_market_value",            # KEEP?** -----------------------------------assessment value by common level ratio
+    #"receipt_date",                 # UNNECESSARY - display_date is used
+    #"recording_date",               # UNNECESSARY - display_date is used
+    #"document_date",                # UNNECESSARY - display_date is used
+    "opa_account_num")              # KEEP****to join
+    #"property_count")               # KEEP --------------------------------------Number of properties in document
+
+
+# Data wrangling
+transfersData <- transfers %>%
+  dplyr::select(all_of(transfersVars)) %>%
+  filter(!is.na(opa_account_num)) %>%
+  filter(document_type %in% c('DEED',
+                              'DEED LAND BANK',
+                              'DEED MISCELLANEOUS',
+                              'DEED MISCELLANEOUS TAXABLE',
+                              'DEED OF CONDEMNATION',
+                              'DEED SHERIFF'))
+
+# JOIN to properties
+# propertiesData <---> transfersData
+
+# if a parcel_number has multiple deeds, I manipulated data to shift deed sheriff first
+# so distinct() will grab deed sheriff and neglect others
+transfersProps <- propertiesData %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num'))%>% 
+  mutate(document_type = factor(document_type,
+                                labels(c("DEED SHERIFF" = 1,
+                                         "DEED" = 2,
+                                         "DEED MISCELLANEOUS" = 3,
+                                         "DEED OF CONDEMNATION" = 4,
+                                         "DEED LAND BANK" = 5,
+                                         "DEED MISCELLANEOUS TAXABLE" = 6))))
+
+  
+# save locally
+# saveRDS(transfers, file = "transfers.rds")
+
+```
+
+
+
+
+
+```{r data: sheriff sales, fig.width= 6, fig.height= 6}
+
+# sheriff sales after 2021 from client
+sheriffSales_21 <- read_csv('./data/sheriffSales_21.csv') %>%
+  distinct(OPA, .keep_all=TRUE)                                                # remove duplicates
+
+# Sheriff Sales before 2021 from real estate transfers data (completed)
+sheriffSales_20 <-
+  transfersProps %>%
+  filter(document_type == "DEED SHERIFF") %>%
+  arrange(parcel_number, document_type) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+
+
+# join all sheriff sales info we have together
+## sheriff sales data from transfers
+sheriffProps <-
+  left_join(
+    delinquenciesVacantProps,
+    st_drop_geometry(sheriffSales_20),
+    by = "parcel_number") %>%
+  distinct(parcel_number, .keep_all = T) %>%
+  merge(., sheriffSales_21,
+        by.x = "parcel_number", by.y = "OPA", all.x = T, no.dups = T) %>%
+  mutate(pastSheriffSale = ifelse(document_type == "DEED SHERIFF", 1, 0)) %>%   #  past records only
+  mutate(pastSheriffSale = replace_na(pastSheriffSale, 0)) %>%
+  mutate(futureSheriffSale = ifelse(document_type == "DEED SHERIFF" | is.na(Status) == F | sheriff_sale == "Y", 1, 0)) %>% # future
+  mutate(futureSheriffSale = replace_na(futureSheriffSale, 0)) %>%
+  mutate(allSheriffSales = ifelse(pastSheriffSale == 1 | futureSheriffSale == 1, 1, 0),
+         sheriffSaleYear = year(as.Date(display_date))) 
+
+
+```
+
+
+## Demand-side data
+
+### L&I Building and Zoning Permits
+
+
+```{r data: permits}
+
+# [source]('https://www.opendataphilly.org/dataset/licenses-and-inspections-building-permits')
+
+# Load PERMITS data from OpenDataPhilly's Carto API
+# permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
+
+# OR local load
+permits <- readRDS('../data/local/permits.rds')
+
+
+# List the permit data set variables needed
+permitsVars <-
+  c('parcel_id_num',                 # KEEP for JOIN
+    'permittype',                    # KEEP*****
+    'permitdescription',             # KEEP for reference
+    #'commercialorresidential',        # MAYBE
+    'typeofwork',                    # KEEP****
+    #'approvedscopeofwork',           # UNNECESSARY - detailed description
+    'permitissuedate',               # KEEP***
+    'status',                        # KEEP
+    'applicanttype',                 # MAYBE
+    #'contractor[...]',               # UNNECESSARY
+    'opa_account_num',               # KEEP for JOIN****
+    #'address',                       # KEEP for JOIN check
+    #'unit_type',                     # UNNECESSARY
+    'lng','lat'
+    #'geometry'
+    )
+
+# EXAMINE VARIABLES
+# permittype
+permitTypes <- as.data.frame(table(permits$permittype))
+
+# select permittyoe
+permitCats <- 
+  c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+    'ZONING',                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
+    'ZP_ADMIN',               #     803
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING'               #    7617   # "2007-01-02" to "2020-03-12"
+    )
+
+# Old categories
+permitCatsA <- 
+  c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'ZP_ADMIN',               #     803
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING')              #    7617   # "2007-01-02" to "2020-03-12"
+
+# New categories
+permitCatsB <- 
+  c('BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING',   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+    'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
+
+
+# Building categories
+permitBuildingCats <- 
+  c('BP_NEWCNST',             #    4984   # "2007-01-02" to "2020-02-20"
+    'BUILDING',               #    8521   # "2015-01-12" to NOW ("2022-01-29")
+    'RESIDENTIAL BUILDING')   #   15909   # "2015-01-06" to NOW ("2022-01-29")
+
+# Zoning categories
+permitZoningCats <- 
+  c('ZP_ADMIN',               #     803
+    'ZP_USE',                 #    9651   # "2007-01-02" to "2020-03-12"
+    'ZP_ZON/USE',             #   12921   # "2007-01-02" to "2020-03-12"
+    'ZP_ZONING',              #    7617   # "2007-01-02" to "2020-03-12"
+    'ZONING')                 #   11187   # "2015-12-02" to NOW ("2022-01-29")
+
+
+# Data wrangling ONE
+# Filter data with PERMIT TYPES (building or zoning)
+permitsData <- permits %>%
+  dplyr::select(permitsVars) %>%
+  filter(permittype %in% permitZoningCats) %>%
+  filter(!is.na(lat), !is.na(lng)) %>% 
+  st_as_sf(coords = c("lng","lat"), crs = phlcrs) 
+
+# type of work across SELECTED categories (48):
+permitTypesOfWork <- as.data.frame(table(permitsData$typeofwork)) 
+
+# All categories
+permitTypeOfWorkCats <- 
+  c(#'ADD',                                              #   1665 ***OLD ***ZONING {New construction attached or added to existing}
+    #'ADDITION AND/OR ALTERATION',                       #  17051 ***NEW ***BUILDING (6290)  ***RESIDENTIAL BUILDING (10761)
+    #'CHANGE OF USE',                                    #   3046 ***NEW ***ZONING {General change of use}
+    'COMBINED LOT LINE RELOCATION AND NEW DEVELOPMENT', #    313 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    'COMDEM',                                           #   1163 ***OLD ***ZONING {Complete demolition}
+    'ENTIRE',                                           #   2910 ***OLD ***ZONING (-2890) ***BUILDING {Entire structure}
+    'ENTSTR',                                           #   3638 ***OLD ***ZONING
+    'FULL DEMOLITION',                                  #    644 ***NEW ***ZONING {Full demolition}
+    'LOT LINE RELOCATION',                              #    317 ***NEW ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    'LOTLIN',                                           #   2527 ***OLD ***ZONING {Combine or redraw lots} ***SIGNIFICATIVE!
+    'NEW CONSTRUCTION',                                 #<- 6292 ***NEW ***BUILDING (1812) ***RESIDENTIAL BUILDING (4480)
+    'NEW CONSTRUCTION (SHELL ONLY)',                    #<-   19 ***NEW ***BUILDING
+    #'NEW CONSTRUCTION (STAND ALONE)',                   #<-   48 ***NEW ***RESIDENTIAL BUILDING
+    'NEW CONSTRUCTION, ADDITION, GFA CHANGE',           #<- 4986 ***NEW ***ZONING {New construction attached or added to existing}
+    'NEWCON'#                                           #<- 5539 ***OLD ***ZONING (-3) ***BUILDING {New construction of structure}
+    #'PARTCH',                                           #   3317 ***OLD ***ZONING {Change in use}
+    #'SFADD',                                            #   3149 ***OLD ***ZONING {Add square footage to existing}
+    )
+    
+# Filter data with PERMIT TYPES (building or zoning)
+permitsZoningData <- permitsData %>%
+  filter(typeofwork %in% permitTypeOfWorkCats)
+
+
+# JOIN to properties
+# permitsZoningData <---> propertiesData
+permitsProps <- propertiesData %>%
+  inner_join(st_drop_geometry(permitsZoningData),  by = c('parcel_number'='opa_account_num'))
+
+
+
+```
+
+
+
+---
+
+
+## Development Activity
+
+
+
+
+
+
+```{r fig.width= 8, fig.height=4}
+
+allPermitsProps <-
+  left_join(delinquenciesVacantProps,
+            st_drop_geometry(permitsProps),
+            by=c("parcel_number")) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+
+
+tabPermitByYr <-
+  allPermitsProps %>%
+  filter(is.na(permittype) == F) %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+
+tabPermitAllByYr <- 
+  permitsProps %>%
+  group_by(is.na(permittype), year(permitissuedate)) %>%
+  summarise(countPermit = n()) %>%
+  st_drop_geometry() 
+
+
+tabPermitBothByYr <-
+  merge(tabPermitByYr, tabPermitAllByYr, by="year(permitissuedate)") %>%
+  dplyr::select(1,3,5) %>%
+  rename("year" = 1,
+         "permitOnVacant" = 2,
+         "permitPhilly" = 3) %>%
+  gather(key="variable", value="value", -year)
+
+
+```
+
+
+## Feature Engineering
+
+
+### Permits 
+
+```{r permits base}
+
+# Permits (Y variable)
+# by fishnet cell and two scales of time (quarters and years)
+permitsNet <-
+  permitsProps %>%
+  st_join(fishnet, left=F) %>%
+  mutate(year = year(permitissuedate),
+         month = month(permitissuedate),
+         quarter = case_when(
+           month %in% c(1, 2, 3) ~ 1,
+           month %in% c(4, 5, 6) ~ 2,
+           month %in% c(7, 8, 9) ~ 3,
+           month %in% c(10, 11, 12) ~ 4)) %>%
+  mutate(period = paste(year, quarter, sep='-')) %>%
+  dplyr::select(-month)
+
+
+
+# create empty panel with all possible time/space combinations by fishnet grids
+periodPanel <- 
+  expand.grid(period = unique(permitsNet$period), 
+              uniqueID = unique(fishnet$uniqueID))
+
+
+# permits by quarter by fishnet cell
+permitsNetPeriods <- 
+  permitsNet %>%
+  group_by(period, uniqueID) %>%
+  summarize(permitCount = sum(n())) %>%
+  st_drop_geometry() %>%
+  right_join(periodPanel) %>% 
+  replace(is.na(.), 0) %>%
+  left_join(fishnet) %>%
+  st_sf()
+
+# permits by year by fishnet cell
+initYr <- 2014
+startYr <- 2016
+endYr <- 2019
+
+# create empty panel with all possible time/space combinations by fishnet grids YEARS
+yearPanel <- 
+  expand.grid(year = seq(startYr, endYr), 
+              uniqueID = unique(fishnet$uniqueID))
+
+
+# create empty panel with all possible time/space combinations by fishnet grids YEARS EXT
+extYearPanel <- 
+  expand.grid(year = seq(initYr, endYr), 
+              uniqueID = unique(fishnet$uniqueID))
+
+
+
+# Select the zoning permits over the four-year interval (16, 17, 18 and 19)
+permitsNetYears <-
+  permitsNet %>%
+  filter(year < endYr,
+         year > startYr) %>%
+  group_by(year, uniqueID) %>%
+  summarize(permitCount = sum(n())) %>%
+  st_drop_geometry() %>%
+  right_join(yearPanel) %>% 
+  replace(is.na(.), 0) %>%
+  left_join(fishnet) %>%
+  st_sf()
+
+
+
+# random cross validation ID (out of 100) for later use
+# mutate(uniqueID = rownames(.)) %>%
+# mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) 
+
+
+# save locally
+# saveRDS(permits, file = "permits.rds")
+
+```
+
+
+```{r permit engineering}
+
+
+# classify zoning permits by five-year periods
+permitsLustrums <- 
+  permitsNetYears %>%
+  mutate(lustrum = case_when(
+           year %in% seq(2007, 2011) ~ '2007-2011',
+           year %in% seq(2012, 2016) ~ '2012-2016',
+           year %in% seq(2017, 2021) ~ '2017-2021'
+         )) %>%
+  group_by(lustrum, uniqueID) %>%
+  summarize(permitCount = sum(permitCount))
+
+
+# save locally
+saveRDS(permitsNetYears, "permitYears.Rds")
+
+
+```
+
+
+
+
+
+### A. Sales over the last three years
+
+```{r sales}
+
+# variables to keep
+salesVars <- 
+  c("geometry",
+    "document_type",
+    "display_date",
+    "grantors",
+    "grantees",
+    "total_consideration",
+    "year",
+    "period",
+    "total_area")
+
+
+# if a parcel_number has multiple sales, we only get the latest one
+salesProps <-
+  transfersProps %>%
+  drop_na(total_area) %>% # drop sales that have NA for their area
+  mutate(document_type = as.character(document_type)) %>%  # to ignore Gillian deed factor levels
+  group_by(parcel_number) %>%
+  slice(which.max(display_date)) %>% # to get only the latest one
+  mutate(year = year(display_date),
+         month = month(display_date),
+         quarter = case_when(
+           month %in% c(1, 2, 3) ~ 1,
+           month %in% c(4, 5, 6) ~ 2,
+           month %in% c(7, 8, 9) ~ 3,
+           month %in% c(10, 11, 12) ~ 4)) %>%
+  mutate(period = paste(year, quarter, sep='-')) %>%
+  st_sf()
+
+
+# select and transform features + filter by period + JOIN into fishnet
+salesPropsNet <- 
+  salesProps %>%
+  dplyr::select(all_of(salesVars)) %>%
+  filter(year > startYr,
+         year < endYr,
+         total_consideration < 4e8,
+         total_consideration > 1e4) %>%  # filter outliers and most "symbolic" transfers
+  mutate(sqftPrice = ifelse(total_area > 0, total_consideration/total_area, 0)) %>% # calculate price by sqft
+  st_join(fishnet, left = F)
+
+
+# Get sales count by fishnet from 2016 to 2019
+salesNetYears <- 
+  salesPropsNet %>%
+  group_by(year, uniqueID) %>%
+  summarize(salesCount = sum(n())) %>%
+  st_drop_geometry() %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+# Get sqft price paid by fishnet from 2016 to 2019
+sqftNetYears <-
+  salesPropsNet %>%
+  group_by(year, uniqueID) %>%
+  summarize(meanSqftPrice = mean(sqftPrice)) %>%
+  st_drop_geometry()  %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+# Get total price paid by fishnet from 2016 to 2019
+priceNetYears <-
+  salesPropsNet %>%
+  group_by(year, uniqueID) %>%
+  summarize(meanPrice = mean(total_consideration)) %>%
+  st_drop_geometry()  %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+# Get change in number of individual owners by fishnet from 2016 to 2019
+individualOwnersNetYears <- 
+  salesPropsNet %>%
+  group_by(year, uniqueID) %>%
+  summarize(numIndGrantors = n_distinct(grantors),
+            numIndGrantees = n_distinct(grantees)) %>%
+  mutate(indOwnerDelta = abs(numIndGrantors - numIndGrantees)) %>%
+  dplyr::select(-numIndGrantors, -numIndGrantees) %>%
+  st_drop_geometry()  %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+
+```
+
+
+
+### B. Amount of delinquent debt
+
+```{r debt}
+
+# All delinquent properties
+debtNetYears <- delinquenciesProps %>%
+  filter(oldest_year_owed < 2020) %>% # take out the ones whose debt started after 2018
+  rename('year' = most_recent_year_owed) %>%
+  st_join(., fishnet) %>%
+  group_by(year, uniqueID) %>%
+  summarize(meanDebt = mean(total_due)) %>%
+  filter(year > 2015) %>%
+  st_drop_geometry()  %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+```
+
+
+### C. Number of vacant lots
+
+```{r vacancy}
+
+# get count of vacant lots and cumulative vacant area
+# ***THIS DOES NOT HAVE YEAR DIFFERENCE
+vacantNet <- 
+  vacantLandProps %>%
+  drop_na(total_area) %>% # drop sales that have NA for their area
+  st_sf() %>%
+  st_join(., fishnet) %>%
+  group_by(uniqueID) %>%
+  summarize(cumulativeVacantArea = sum(total_area),
+            totalVacantLots = sum(n())) %>%
+  st_drop_geometry() %>%
+  right_join(yearPanel) %>%
+  replace(is.na(.), 0)
+
+```
+
+
+### E. Exposure to amenities
+
+
+#### E1. Schools
+```{r exposure schools}
+
+# [source](https://metadata.phila.gov/#home/datasetdetails/5543866320583086178c4ef1/)
+
+# take out special and Kindergardens
+schoolsSelected <- c(
+  "ELEMENTARY/MIDDLE",
+  "ELEMENTARY/MIDDLE/HIGH",
+  "HIGH SCHOOL",
+  "ELEMENTARY SCHOOL",
+  "MIDDLE/HIGH",
+  "MIDDLE SCHOOL")
+
+# get school locations
+schoolsData <-
+  st_read('https://opendata.arcgis.com/datasets/d46a7e59e2c246c891fbee778759717e_0.geojson') %>%
+  st_transform(st_crs(phlcrs)) %>%
+  filter(GRADE_LEVEL %in% schoolsSelected) %>%
+  dplyr::select(geometry) %>%
+  mutate(legend = 'schools')
+
+
+```
+
+#### E2. Parks
+```{r exposure parks}
+
+# [source](https://metadata.phila.gov/#home/datasetdetails/5dc1aeb93741fa001504b10b/representationdetails/5dc1aeb93741fa001504b10f/)
+
+# get parks polygon data
+parksData <-
+  st_read('https://opendata.arcgis.com/datasets/d52445160ab14380a673e5849203eb64_0.geojson') %>%
+  st_transform(st_crs(phlcrs)) %>%
+  filter(!PROPERTY_CLASSIFICATION %in% c('WATERSHED_PARK', 'REGIONAL_PARK')) %>% # Take out big parks and leave nested one
+  dplyr::select(geometry) %>%
+  st_centroid(.) %>%
+  mutate(legend = 'parks')
+
+```
+
+#### E3. Transit
+
+```{r exposure transit}
+
+# read transit data locally
+#TODO: create cloud source version
+transitData <-
+  rbind(
+    read_csv("./data/SEPTA_-_Highspeed_Stations.csv") %>%
+      mutate(mode = 'subway') %>%
+      st_as_sf(coords = c("Longitude","Latitude"), crs = 4269) %>%
+      st_transform(st_crs(phlcrs)) %>%
+      dplyr::select(mode, geometry),
+    read_csv("./data/SEPTA_-_Trolley_Stops.csv") %>%
+      mutate(mode = 'trolley') %>%
+      st_as_sf(coords = c("Longitude","Latitude"), crs = 4269) %>%
+      st_transform(st_crs(phlcrs)) %>%
+      dplyr::select(mode, geometry)) %>%
+  mutate(legend = 'transit') %>%
+  dplyr::select(-mode)
+
+```
+
+#### E4. Food Licenses
+
+```{r food licenses}
+
+# ODP Business Licenses Dataset
+# [source]('https://metadata.phila.gov/#home/datasetdetails/5543865a20583086178c4ed2/representationdetails/5e985a5e344ed50018936bb8/')
+
+# set variables for wrangling
+licenseVars <- 
+  c('initialissuedate',
+    'inactivedate',
+    'licensetype',
+    'geometry')
+
+licenses <- 
+  st_read('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+business_licenses&filename=business_licenses&format=geojson&skipfields=cartodb_id')
+
+# set license types related to food
+licenseTypes <- c(
+  "Food Preparing and Serving",
+  "Food Manufacturer / Wholesaler",
+  "Food Establishment, Retail Perm Location (Large)",
+  "Food Establishment, Retail Permanent Location",
+  "Food Preparing and Serving (30+ SEATS)",
+  "Food Caterer",
+  "Sidewalk Cafe",
+  "Public Garage / Parking Lot",
+  "Curb Market",
+  "Food Establishment, Outdoor",
+  "Sidewalk Cafe (Temporary)"
+  )
+
+# select only food licenses that were initially issued before 2020
+licensesData <- 
+  licenses %>%
+  st_transform(st_crs(phlcrs)) %>%
+  dplyr::select(licenseVars) %>%
+  filter(licensetype %in% licenseTypes,
+         initialissuedate < as.Date.character('2020-01-01'),
+         !inactivedate > as.Date.character('2016-01-01')) %>%
+  dplyr::select(geometry) %>%
+  mutate(legend = 'licenses') %>%
+  mutate(coords = st_coordinates(.)) %>%
+  na.omit() %>%
+  dplyr::select(-coords)
+
+
+```
+
+
+
+
+#### E5. Crime
+
+```{r exposure crime}
+
+# [source](https://metadata.phila.gov/#home/datasetdetails/5543868920583086178c4f8e/representationdetails/570e7621c03327dc14f4b68d/)
+
+crime <- read_csv('https://phl.carto.com/api/v2/sql?filename=incidents_part1_part2&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator&q=SELECT%20text_general_code,dispatch_date%20,%20ST_Y(the_geom)%20AS%20lat,%20ST_X(the_geom)%20AS%20lng%20FROM%20incidents_part1_part2%20WHERE%20dispatch_date_time%20%3E=%20%272016-01-01%27%20AND%20dispatch_date_time%20%3C%20%272020-01-02%27')
+
+
+# set crime types to consider (keep only ASSAULTS)
+crimeTypes <- c(
+  "Aggravated Assault Firearm",
+  "Aggravated Assault No Firearm",
+  "Rape",
+  "Other Assaults",
+  "Homicide - Criminal")
+
+
+# wrangle crime data
+crimeData <- 
+  crime %>%
+  st_as_sf(coords = c('lng','lat'), crs = 4326) %>%
+  st_transform(st_crs(phlcrs)) %>%
+  mutate(year = year(dispatch_date)) %>%
+  rename('crimeType' = text_general_code) %>%
+  filter(crimeType %in% crimeTypes) %>%
+  st_filter(., phlcounty) %>%
+  dplyr::select(-dispatch_date, -crimeType)
+
+
+# get nearest neighbor data
+# set empty vector
+crimeYears <-  c()
+
+# loop through years adding crime data for each year
+for (i in startYr:endYr) {
+  data <-
+    crimeData %>%
+    filter(year == i)
+  crimeYears <- 
+    rbind(crimeYears,
+          fishnet %>%
+            mutate(crimeNN = nn_function(st_c(st_coid(.)), st_c(data), 3),
+                   year = i))
+}
+
+# add both count and exposure to panel
+crimeNetYears <-
+  merge(
+    crimeData %>%
+      st_join(., fishnet, join = st_within) %>%
+      st_drop_geometry() %>%
+      group_by(year, uniqueID) %>%
+      summarize(crime = n()) %>%
+      right_join(yearPanel) %>%
+      replace(is.na(.), 0),
+    st_drop_geometry(crimeYears))
+
+
+```
+
+
+
+
+
+
+```{r exposure join}
+
+# Ordinance violations
+exposureNet <- 
+  rbind(schoolsData,
+        parksData,
+        transitData,
+        licensesData) %>%
+  st_join(., fishnet, join = st_within) %>%
+  st_drop_geometry() %>%
+  group_by(uniqueID, legend) %>%
+  summarize(count = n()) %>%
+  full_join(fishnet) %>%
+  spread(legend, count, fill = 0) %>%
+  st_sf() %>%
+  dplyr::select(-`<NA>`) %>%
+  na.omit() %>%
+  ungroup() %>%
+  mutate(schoolsNN =
+           nn_function(st_c(st_coid(.)), st_c(schoolsData), 3),
+         parksNN =
+           nn_function(st_c(st_coid(.)), st_c(parksData), 3),
+         transitNN =
+           nn_function(st_c(st_coid(.)), st_c(transitData), 3),
+         licensesNN = 
+           nn_function(st_c(st_coid(.)), st_c(licensesData), 3)) %>%
+  st_drop_geometry()
+
+
+# TURN previous table into YEARS and then join with CRIME table
+exposureNetYears <-
+  merge(
+    exposureNet %>%
+      right_join(yearPanel),
+    crimeNetYears)
+
+
+```
+
+
+
+
+#### F. Jobs
+
+```{r exposure jobs}
+
+# FROM Longitudinal Origin Destination Survey
+# [source]('https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/')
+
+# state the endpoints for getting the jobs OD data
+jobsEndpoints <- 
+  c('https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2014.csv.gz',
+    'https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2015.csv.gz',
+    'https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2016.csv.gz',
+    'https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2017.csv.gz',
+    'https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2018.csv.gz',
+    'https://lehd.ces.census.gov/data/lodes/LODES7/pa/od/pa_od_aux_JT00_2019.csv.gz')
+
+
+# create empty list
+jobsAllYears <- c()
+
+# for every download endpoint, unzip, read csv and add to jobsAllYears
+# set initial year of looping
+loopYear <- initYr
+
+# loop through links
+for (dataset in jobsEndpoints) {
+  jobsData <- read_csv(dataset) %>%
+    mutate(year = loopYear)
+  jobsAllYears <-
+    rbind(jobsAllYears, jobsData)
+  loopYear <- loopYear + 1
+}
+
+# turn data by blocks into points with number of jobs in that block
+jobsData <- 
+  jobsAllYears %>%
+  mutate(GEOID10 = as.character(w_geocode)) %>%
+  dplyr::select(GEOID10, year) %>%
+  group_by(year, GEOID10) %>%
+  summarize(count = sum(n())) %>%
+  inner_join(phlblocks) %>%
+  st_sf() %>%
+  st_centroid(.)
+
+# get jobs by year into a fishnet
+jobsNetAllYears <- 
+  jobsData %>%
+  st_join(fishnet) %>%
+  group_by(year, uniqueID) %>%
+  summarize(jobCount = sum(count)) %>%
+  st_drop_geometry() %>%
+  right_join(extYearPanel) %>%
+  replace(is.na(.), 0)
+
+# Get change in jobs in 1 and 2 year intervals
+jobsLaggedNetYears <-
+  merge(
+    jobsNetAllYears %>%
+      pivot_wider(names_from = year, values_from = jobCount) %>%
+      mutate(lag1yr2016 = `2016` - `2015`,
+             lag1yr2017 = `2017` - `2016`,
+             lag1yr2018 = `2018` - `2017`,
+             lag1yr2019 = `2019` - `2018`) %>%
+      dplyr::select(-starts_with('20')) %>%
+      pivot_longer(cols = colnames(.)[-1], names_to = 'year', values_to = 'lag1years') %>%
+      mutate(year = as.numeric(substr(year, 7, 10))),
+    jobsNetAllYears %>%
+      pivot_wider(names_from = year, values_from = jobCount) %>%
+      mutate(lag2yr2016 = `2016` - `2014`,
+             lag2yr2017 = `2017` - `2015`,
+             lag2yr2018 = `2018` - `2016`,
+             lag2yr2019 = `2019` - `2017`) %>%
+      dplyr::select(-starts_with('20')) %>%
+      pivot_longer(cols = colnames(.)[-1], names_to = 'year', values_to = 'lag2years') %>%
+      mutate(year = as.numeric(substr(year, 7, 10))))
+
+
+# Merge everything together for the fishnet/years for 16-17-18-19
+jobsNetYears <-
+  merge(
+    jobsNetAllYears %>%
+      filter(year > 2015),
+    jobsLaggedNetYears)
+
+```
+
+
+
+
+
+### Complete feature set
+
+```{r join features}
+
+completeNet <- 
+  permitsNetYears %>%
+  left_join(salesNetYears) %>%
+  left_join(priceNetYears) %>%
+  left_join(sqftNetYears) %>%
+  left_join(debtNetYears) %>%
+  left_join(individualOwnersNetYears) %>%
+  left_join(vacantNet) %>%
+  left_join(jobsNetYears) %>%
+  left_join(exposureNetYears)
+
+saveRDS(completeNet, "completeNetYears.Rds")
+
+
+
+# # add risk features to a final fishnet
+# finalNet <-
+#   left_join(occurrenceNet, st_drop_geometry(varsNet), by="uniqueID")
+# 
+# 
+# # ADD NEIGHBORHOOD EFFECTS !!
+# 
+# finalNet <-
+#   st_centroid(finalNet) %>%
+#     st_join(dplyr::select(neighborhoods, name), by = "uniqueID") %>%
+#     st_join(dplyr::select(policeDistricts, District), by = "uniqueID") %>%
+#       st_drop_geometry() %>%
+#       left_join(dplyr::select(finalNet, geometry, uniqueID)) %>%
+#       st_sf() %>%
+#   na.omit()
+
+
+
+```
+
+# Moran's I / Hotspots
+
+
+
+
+
+
+
+
+
