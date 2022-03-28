@@ -296,12 +296,17 @@ for (var in colnames(featuresNet_noGeo)) {
 ```{r individual linear regression}
 #### no transformation ####
 dat_dep <- featuresNet %>%
-  dplyr::select(permitCount)
+  dplyr::select(permitCount) # countinuous outcome
 dat_ind <- featuresNet %>%
   dplyr::select(-uniqueID, -permitCount, -year, -geometry, -permitDummy_numeric, -permitDummy)
+dat_dep2 <- featuresNet %>%
+  dplyr::select(permitDummy_numeric) # binary outcome
 
 reg <- as.data.frame(get_bivReg(dat_dep, dat_ind))
 # write.csv(reg, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg.csv")
+
+reg2 <- as.data.frame(get_bivReg(dat_dep2, dat_ind))
+# write.csv(reg2, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg_dummy.csv")
 ```
 
 ```{r correlation}
@@ -821,6 +826,18 @@ featuresNet_neigh <-
   st_join(dplyr::select(phil_neigh, NAME)) %>%
   na.omit()
 
+finalIndVars <- c("year", "salesCount", "indOwnerDelta", 
+          "meanSqftPrice", 
+          "medRent", "perc_medRentChange2yr",
+          "meanDebt",
+          "totalVacantLots",
+          "pop", "perc_popChange2yr",
+          "perc_white", "perc_whiteChange2yr", 
+          "medInc", 'perc_medIncChange2yr',
+          "licenses", "parksNN", "schoolsNN", "transitNN", "crime")
+
+# specificity
+
 crossValidate <- function(dataset, id, dependentVariable, indVariables) {
 
   allPredictions <- data.frame()
@@ -865,16 +882,6 @@ get_accuracy <- function(cm){
     return(acc)
 }
 
-finalIndVars <- c("year", "salesCount", "indOwnerDelta", 
-          "meanSqftPrice", 
-          "medRent", "perc_medRentChange2yr",
-          "meanDebt",
-          "totalVacantLots",
-          "pop", "perc_popChange2yr",
-          "perc_white", "perc_whiteChange2yr", 
-          "medInc", 'perc_medIncChange2yr',
-          "licenses", "parksNN", "schoolsNN", "transitNN", "crime")
-
 spatialCV <- crossValidate(
   dataset = featuresNet_neigh,
   id = "NAME",
@@ -885,9 +892,9 @@ allvalues <- unique(union(spatialCV$prediction, spatialCV$permitDummy_numeric))
 cv_result <- #accuracy
   spatialCV %>%
     dplyr::group_by(cvID) %>%
-    dplyr::summarize(accuracy = get_accuracy(caret::confusionMatrix(factor(Prediction, levels = allvalues), factor(permitDummy, levels = allvalues)))) %>%
+    dplyr::summarize(accuracy = get_accuracy(caret::confusionMatrix(factor(Prediction, levels = allvalues), factor(permitDummy_numeric, levels = allvalues)))) %>%
   ungroup()
-saveRDS(cv_result, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
+# saveRDS(cv_result, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
 spatialCV <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
 phil_neigh_cv <- left_join(phil_neigh, cv_result, by=c("NAME"="cvID"))
 
@@ -909,59 +916,77 @@ ggplot() +
 
 ```
 
-```{r}
-crossValidate_score <- function(dataset, id, dependentVariable, indVariables) {
-
-  allPredictions <- data.frame()
-  cvID_list <- unique(dataset[[id]])
-  
-  for (i in cvID_list) {
-  
-    thisFold <- i
-    cat("This hold out fold is", thisFold, "\n")
-  
-    fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
-                  dplyr::select(id, geometry, indVariables, dependentVariable)
-    fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
-                  dplyr::select(id, geometry, indVariables, dependentVariable)
-  
-    model <- randomForest(permitDummy_numeric ~ 
-          year +
-          salesCount + indOwnerDelta + 
-          meanSqftPrice + 
-          medRent + perc_medRentChange2yr +
-          meanDebt +
-          totalVacantLots +
-          pop + perc_popChange2yr +
-          perc_white + perc_whiteChange2yr + 
-          medInc + + perc_medIncChange2yr +
-          licenses + parksNN + schoolsNN + transitNN + crime, 
-      data = fold.train)
-    
-    thisPrediction <- 
-      mutate(fold.test, Prediction = predict(model, fold.test, type = "response"))
-    
-      
-    allPredictions <-
-      rbind(allPredictions, thisPrediction)
-      
-    }
-    return(allPredictions)
-}
-
-spatialCV_score <- crossValidate_score(
-  dataset = featuresNet_neigh,
-  id = "NAME",
-  dependentVariable = "permitDummy_numeric",
-  indVariables = finalIndVars) %>%
-    dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
-
-cv_result_avg <- 
-  spatialCV_score %>%
-    dplyr::group_by(cvID) %>% 
-    dplyr::summarize(mean_score = mean(Prediction)) %>%
-  ungroup()
-
+```{r LOGO-cv predicted score}
+# not very meaningful - could just aggregate from original fishnet, no need CV
+# crossValidate_score <- function(dataset, id, dependentVariable, indVariables) {
+# 
+#   allPredictions <- data.frame()
+#   cvID_list <- unique(dataset[[id]])
+#   
+#   for (i in cvID_list) {
+#   
+#     thisFold <- i
+#     cat("This hold out fold is", thisFold, "\n")
+#   
+#     fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
+#                   dplyr::select(id, geometry, indVariables, dependentVariable)
+#     fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
+#                   dplyr::select(id, geometry, indVariables, dependentVariable)
+#   
+#     model <- randomForest(permitDummy_numeric ~ 
+#           year +
+#           salesCount + indOwnerDelta + 
+#           meanSqftPrice + 
+#           medRent + perc_medRentChange2yr +
+#           meanDebt +
+#           totalVacantLots +
+#           pop + perc_popChange2yr +
+#           perc_white + perc_whiteChange2yr + 
+#           medInc + + perc_medIncChange2yr +
+#           licenses + parksNN + schoolsNN + transitNN + crime, 
+#       data = fold.train)
+#     
+#     thisPrediction <- 
+#       mutate(fold.test, Prediction = predict(model, fold.test, type = "response"))
+#     
+#       
+#     allPredictions <-
+#       rbind(allPredictions, thisPrediction)
+#       
+#     }
+#     return(allPredictions)
+# }
+# 
+# spatialCV_score <- crossValidate_score(
+#   dataset = featuresNet_neigh,
+#   id = "NAME",
+#   dependentVariable = "permitDummy_numeric",
+#   indVariables = finalIndVars) %>%
+#     dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
+# 
+# cv_result_avg <- 
+#   spatialCV_score %>%
+#     dplyr::group_by(cvID) %>% 
+#     dplyr::summarize(mean_score = mean(Prediction)) %>%
+#   ungroup()
+# 
+# phil_neigh_cv <- left_join(phil_neigh, cv_result_avg, by=c("NAME"="cvID"))
+# 
+# ggplot() +
+#   geom_sf(data=phil_neigh_cv, aes(fill=mean_score)) +
+#   scale_fill_viridis(option = "mako",
+#                          name = "value",
+#                          begin = 0.3,
+#                           #trans = "log1p",
+#                           direction = -1) +
+#       mapTheme() +
+#       theme(axis.text.x = element_blank(),
+#             legend.position = c(0.85, 0.2),
+#             panel.border = element_blank(),
+#             panel.background = element_rect(fill = "#ffffff"),
+#             panel.grid.major.x = element_blank(),
+#             legend.title=element_text(size=12), 
+#             legend.text=element_text(size=9))
 ```
 
 
