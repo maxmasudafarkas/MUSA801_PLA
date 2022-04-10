@@ -7,34 +7,37 @@ output: html_document
 # set up
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
 # LOAD PACKAGES
-library(sf)
-library(riem)
-library(caret)
-library(spdep)
-library(knitr)
-library(gifski)
-library(tigris)
-library(mapview)
-library(geojsonR)
-library(tidyverse)
-library(lubridate)
-library(gganimate)
-library(gridExtra)
-library(kableExtra)
-library(ggplot2)
+
 library(basemaps)
-library(ggmap)
-library(viridis)
-library(tidycensus)
-library(ggforce)
-library(pROC)
-library(yardstick)
+library(caret)
+library(geojsonsf)
+library(gifski)
+library(gganimate)
 library(ggcorrplot)
-library(randomForest)
+library(ggforce)
+library(ggmap)
+library(ggplot2)
+library(gridExtra)
 library(Hmisc)
-library(stargazer)
+library(kableExtra)
+library(knitr)
+library(lubridate)
+library(mapview)
+library(pROC)
+library(randomForest)
+library(riem)
 library(ROCR)
+library(sf)
+library(spdep)
+library(stargazer)
+library(tidycensus)
+library(tidyverse)
+library(tigris)
+library(viridis)
+library(yardstick)
+
 
 # R options setup
 options(scipen = 999)
@@ -71,19 +74,28 @@ palette <- c("#676767",
              "#f76957")   # sheriff sales
 ```
 
-```{r function}
+
+
+
+```{r regression functions}
+
 # Function to plot histogram (used for IV distribution)
+
 plotDV_histogram <- function(dataset) {
   nm <- names(dataset)
   for (i in seq_along(nm)) {
     print(
       ggplot(dataset) +
-        geom_histogram(aes_string(x=nm[i]), fill = "#18B6C4", color="white") +
+        geom_histogram(aes_string(x = nm[i]),
+                       fill = "#18B6C4",
+                       color = "white") +
         labs(title = paste("Distribution of ", nm[i])))
+    }
   }
-}
 
-# Functions to get bivariate regression result
+
+# Functions to get bivariate regression results
+
 do.regression <- function (dep, indep) {
   modsum <- summary(lm (dep ~ indep))
   modtab <- c(
@@ -92,131 +104,191 @@ do.regression <- function (dep, indep) {
     modsum$coefficients[, 3],    
     modsum$coefficients[, 4],  
     modsum$adj.r.squared)
-  round(modtab,digits=6)
+  round(modtab,digits = 6)
 }
 
-get_bivReg <- function(dat_dep, dat_ind, method="original") {
-  tab <- c()
-  rname <- c()
-  dep_i = 0
-  ind_i = 0
-  
-  for ( y in dat_dep ) {
-    if ( ind_i == length(dat_dep) ) {
+
+get_bivReg <-
+  function(dat_dep, dat_ind, method = "original") {
+    
+    # empty lists
+    tab <- c()
+    rname <- c()
+    dep_i = 0
+    ind_i = 0
+    
+    #  
+    for (y in dat_dep) {
+      if (ind_i == length(dat_dep)) {
         break
-    }
-    dep_i = dep_i + 1
-    
-    if ( method == "logY" ) {
-      dep_name = paste("log", colnames(dat_dep[dep_i]), sep="_")
-    } else if ( method == "logposY" ) {
-      dep_name = paste("logpos", colnames(dat_dep[dep_i]), sep="_")
-    } else {
-      dep_name = colnames(dat_dep[dep_i])
-    }
-    
-    for ( x in dat_ind ) {
-      if ( ind_i == length(dat_ind) ) {
-        ind_i = 0
       }
-      ind_i = ind_i + 1
+    
+    #
+    dep_i =+ 1
+    
+    # 
+    if (method == "logY") {
+      dep_name = paste("log", colnames(dat_dep[dep_i]), sep = "_")
+      } else if (
+        method == "logposY") {
+        dep_name = paste("logpos", colnames(dat_dep[dep_i]), sep = "_")
+        } else {
+      dep_name = colnames(dat_dep[dep_i])
+        }
+    
+    # loop through independent variables
+    for (x in dat_ind) {
+      if (ind_i == length(dat_ind)) {
+        ind_i = 0
+        }
+      ind_i =+ 1
+      
       ind_name = colnames(dat_ind[ind_i])
-      res <- do.regression ( y, x )
+      res <- do.regression(y, x)
       tab <- rbind(tab, res)
       rname <- append(rname, paste(dep_name, ind_name, sep="~"))
     }
   }
   
+  # turn results into dataframe and name columns
   tab <- as.data.frame(tab)
-  colnames(tab) = c("Int","Beta","stErrorInt", "StErrorBeta","TSTATInt", "TSTATBeta", "PVALINT", "PVALBeta", "R2")
+  colnames(tab) = c("Int", "Beta", "stErrorInt", "StErrorBeta", "TSTATInt", "TSTATBeta", "PVALINT", "PVALBeta", "R2")
   rownames(tab) = rname
   
   return(tab)
 }
 
-# Function to plot scatterplot: change in ridership and IV
-plot_XY <- function (ind_var_list, dep_var) {
-  dat_by.stop_ACS <- featuresNet %>%
-    dplyr::select(dep_var, ind_var_list) %>%
-     gather(key, value, -dep_var) %>%
-     mutate(key = fct_relevel(key, ind_var_list))
-   
-  plot <- ggplot(dat_by.stop_ACS) +
-    geom_point(aes_string("value", dep_var), color="#18B6C4") +
-    facet_wrap_paginate(~ key, scales = "free", ncol = 2, nrow = 2)
-  
-  for (i in seq(n_pages(plot))) {
-  print(
-    ggplot(dat_by.stop_ACS) +
-      geom_point(aes_string("value", dep_var), color="#18B6C4") +
-      #geom_text(data = cor.demographic, aes(label = paste("r =", round(correlation, 2))),
-              #x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
-      geom_smooth(method = "glm", aes_string(x="value", y=dep_var), color="#10767F", size = 1)+
-      #facet_wrap(~ key, scales = "free") +
-      scale_y_continuous(limits=c(-1.5, 30)) +
-      scale_x_continuous(name = substitute(ind_var_list)) +
-      facet_wrap_paginate(~ key, scales = "free_x", ncol = 2, nrow = 2, page=i) +
-      labs(title = paste("relationship between", substitute(dep_var), "and predictor variables"),
-           subtitle = "(continous outcomes for numeric variables)") +
-      theme(legend.position = "right")
-    )
+
+# Function to plot scatterplot: change in ridership and IV (???)
+
+plot_XY <-
+  function(ind_var_list, dep_var) {
+    dat_by.stop_ACS <-
+      featuresNet %>%
+      dplyr::select(dep_var, ind_var_list) %>%
+      gather(key, value, -dep_var) %>%
+      mutate(key = fct_relevel(key, ind_var_list))
     
-    ggsave(paste("visualizations/2nd_presentation/scatterplots/", substitute(ind_var_list), i, ".png", sep=""), #Gillian's path
-         plot=last_plot(), dpi = 300,
-         width = 8, height = 5, units = "in")
+    plot <- ggplot(dat_by.stop_ACS) +
+      geom_point(aes_string("value", dep_var), color="#18B6C4") +
+      facet_wrap_paginate(~ key, scales = "free", ncol = 2, nrow = 2)
+    
+    for (i in seq(n_pages(plot))) {
+      print(
+        ggplot(dat_by.stop_ACS) +
+          geom_point(aes_string("value", dep_var), color="#18B6C4") +
+          # geom_text(data = cor.demographic, aes(label = paste("r =", round(correlation, 2))),
+          #x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
+          geom_smooth(method = "glm", aes_string(x="value", y=dep_var), color="#10767F", size = 1) +
+          # facet_wrap(~ key, scales = "free") +
+          scale_y_continuous(limits=c(-1.5, 30)) +
+          scale_x_continuous(name = substitute(ind_var_list)) +
+          facet_wrap_paginate(~ key, scales = "free_x", ncol = 2, nrow = 2, page=i) +
+          labs(title = paste("relationship between",
+                             substitute(dep_var),
+                             "and predictor variables"),
+               subtitle = "(continous outcomes for numeric variables)") +
+          theme(legend.position = "right")
+        )
+    
+    # Save the plots locally
+    ggsave(paste("visualizations/2nd_presentation/scatterplots/",
+                 substitute(ind_var_list), i, ".png", sep=""), 
+         plot = last_plot(),
+         dpi = 300,
+         width = 8,
+         height = 5,
+         units = "in")
   }
 }
+
+
 ```
 
-```{r read in data}
+
+
+
+```{r load in data}
+
+
 ##- join data Adrian and I worked on separately together -##
-# permitsNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNet.rds") %>%
-#   mutate(uniqueID = as.numeric(uniqueID)) 
-# demoNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo_features.rds")%>%
-#   mutate(year = as.numeric(year))
-# sheriffNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
-# adrianNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears2.rds") %>%
-#   mutate(uniqueID = as.numeric(uniqueID))
-# adrianNet2 <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears.rds") %>%
-#   mutate(uniqueID = as.numeric(uniqueID)) %>%
-#   dplyr::select(uniqueID, year, licenses:crimeNN) %>%
-#   st_drop_geometry()
-# 
-# featuresNet <- left_join(permitsNet, demoNet, by=c("uniqueID", "year")) %>%
-#   left_join(sheriffNet, by=c("uniqueID", "year")) %>%
-#   left_join(adrianNet, by=c("uniqueID", "year")) %>%
-#   left_join(adrianNet2, by=c("uniqueID", "year"))
-# 
-# featuresNet <- featuresNet %>%
-#   dplyr::select(-permitCount.y, -salesCount.y, -meanSqftPrice.y, -geometry.y) %>%
-#   rename(geometry = geometry.x,
-#          permitCount = permitCount.x, 
-#          salesCount = salesCount.x, 
-#          meanSqftPrice = meanSqftPrice.x) %>%
-#   arrange(uniqueID) %>%
-#   mutate(permitDummy = as.factor(ifelse(permitCount>0, 1, 0))) %>% 
-#   ungroup()
+
+permitsNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNet.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID))
+demoNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo_features.rds")%>%
+  mutate(year = as.numeric(year))
+sheriffNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
+adrianNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears2.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID))
+adrianNet2 <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID)) %>%
+  dplyr::select(uniqueID, year, licenses:crimeNN) %>%
+  st_drop_geometry()
+
+
+
+featuresNet <- left_join(permitsNet, demoNet, by=c("uniqueID", "year")) %>%
+  left_join(sheriffNet, by=c("uniqueID", "year")) %>%
+  left_join(adrianNet, by=c("uniqueID", "year")) %>%
+  left_join(adrianNet2, by=c("uniqueID", "year"))
+
+featuresNet <- featuresNet %>%
+  dplyr::select(-permitCount.y, -salesCount.y, -meanSqftPrice.y, -geometry.y) %>%
+  rename(geometry = geometry.x,
+         permitCount = permitCount.x,
+         salesCount = salesCount.x,
+         meanSqftPrice = meanSqftPrice.x) %>%
+  arrange(uniqueID) %>%
+  mutate(permitDummy = as.factor(ifelse(permitCount>0, 1, 0))) %>%
+  ungroup()
 
 #saveRDS(featuresNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds")
 
+
+
+# random forest does not take factors in well, so Gillian re-calculated the dummy again here
 featuresNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds") %>%
-  mutate(permitDummy_numeric = ifelse(permitCount>0, 1, 0)) #random forest does not take factor in well, so calculated the dummy again here
+  mutate(permitDummy_numeric = ifelse(permitCount>0, 1, 0))
+
+
 ```
 
-# EDA
+
+
+# Exploratory Design Analysis
+
 ```{r histogram}
+
 plotDV_histogram(featuresNet)
+
 ```
 
-```{r batch scatterplot}
-var_time <- c("year", "lag1years", "lag2years")
-var_activities <- c("salesCount", "indOwnerDelta")
-var_price <- c("meanSqftPrice", "meanPrice", "medRent", "perc_medRentChange1yr", "perc_medRentChange2yr", "meanDebt")
-var_vacant <- c("cumulativeVacantArea", "totalVacantLots", "sheriff")
-var_pop <- c("pop", "perc_popChange1yr", "perc_popChange2yr")
-var_race <- c("perc_white", "perc_whiteChange1yr", "perc_whiteChange2yr")
-var_inc <- c("medInc", "perc_medIncChange1yr", "perc_medIncChange2yr", "jobCount")
-var_amenities <- c("licenses", "licensesNN", "parks", "parksNN", "schools", "schoolsNN", "transit", "transitNN", "crime", "crimeNN")
+```{r featuress scatterplot}
+
+var_time <-
+  c("year", "lag1years", "lag2years")
+
+var_activities <-
+  c("salesCount", "indOwnerDelta")
+
+var_price <-
+  c("meanSqftPrice", "meanPrice", "medRent", "perc_medRentChange1yr", "perc_medRentChange2yr", "meanDebt")
+
+var_vacant <-
+  c("cumulativeVacantArea", "totalVacantLots", "sheriff")
+
+var_pop <-
+  c("pop", "perc_popChange1yr", "perc_popChange2yr")
+
+var_race <-
+  c("perc_white", "perc_whiteChange1yr", "perc_whiteChange2yr")
+
+var_inc <-
+  c("medInc", "perc_medIncChange1yr", "perc_medIncChange2yr", "jobCount")
+
+var_amenities <-
+  c("licenses", "licensesNN", "parks", "parksNN", "schools", "schoolsNN", "transit", "transitNN", "crime", "crimeNN")
+
 
 # plot_XY(var_time, "permitCount")
 # plot_XY(var_activities, "permitCount")
@@ -226,18 +298,28 @@ var_amenities <- c("licenses", "licensesNN", "parks", "parksNN", "schools", "sch
 # plot_XY(var_race, "permitCount")
 # plot_XY(var_inc, "permitCount")
 # plot_XY(var_amenities, "permitCount")
+
+
 ```
 
 ```{r box plot and map}
+
+
 # set color palette
 color1 <- "#18B6C4" 
 color2 <- "#18B6C4"
 
-featuresNet_sf <- featuresNet %>% 
+
+featuresNet_sf <-
+  featuresNet %>% 
   st_sf()
 
-featuresNet_noGeo <- featuresNet %>%
+
+featuresNet_noGeo <-
+  featuresNet %>%
   select(-geometry, -permitDummy, -permitDummy_numeric)
+
+
 
 for (var in colnames(featuresNet_noGeo)) {
   plot1 <-
@@ -280,6 +362,7 @@ for (var in colnames(featuresNet_noGeo)) {
             legend.title=element_text(size=12), 
             legend.text=element_text(size=9))
   
+  
   plot <- grid.arrange(plot1,
                        plot2,
                        ncol = 2,
@@ -289,27 +372,41 @@ for (var in colnames(featuresNet_noGeo)) {
          plot, dpi = 300,
          width = 8, height = 5, units = "in")
 }
+
+
 ```
 
 
 # feature selection
+
 ```{r individual linear regression}
+
 #### no transformation ####
 dat_dep <- featuresNet %>%
   dplyr::select(permitCount) # countinuous outcome
+
+
 dat_ind <- featuresNet %>%
   dplyr::select(-uniqueID, -permitCount, -year, -geometry, -permitDummy_numeric, -permitDummy)
+
+
 dat_dep2 <- featuresNet %>%
   dplyr::select(permitDummy_numeric) # binary outcome
+
 
 reg <- as.data.frame(get_bivReg(dat_dep, dat_ind))
 # write.csv(reg, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg.csv")
 
+
 reg2 <- as.data.frame(get_bivReg(dat_dep2, dat_ind))
 # write.csv(reg2, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg_dummy.csv")
+
+
 ```
 
 ```{r correlation}
+
+
 var_corr <- dat_ind 
 
 #rcorr(as.matrix(var_corr[]), type = c("pearson"))
@@ -321,6 +418,8 @@ ggcorrplot(outline.col = "white", type = "lower",
   colors = c(palette[2], "white", palette[6]),
   insig = "blank") +  
   labs(title = "Correlation across numeric variables")
+
+
 
 # for presentation
 var_corr_some <- var_corr %>%
@@ -341,6 +440,8 @@ ggcorrplot(outline.col = "white", type = "lower",
   insig = "blank") +  
   labs(title = "Correlation across important numeric variables")
 
+
+
 # group 1 - sales count and med rent
 var_corr_sales <- var_corr %>%
   select(salesCount, 
@@ -352,6 +453,8 @@ ggcorrplot(outline.col = "white", type = "lower",
   colors = c(palette[2], "white", palette[6]),
   insig = "blank") +  
   labs(title = "Correlation across variables of development prospects")
+
+
 
 # group 2 - demographics
 var_corr_demo <- var_corr %>%
@@ -366,6 +469,8 @@ ggcorrplot(outline.col = "white", type = "lower",
   insig = "blank") +  
   labs(title = "Correlation across variables of demographics")
 
+
+
 # group 3 - amenities
 var_corr_amen <- var_corr %>%
   select(licenses, licensesNN, parks, parksNN, schools, schoolsNN, transit, transitNN, crime, crimeNN)
@@ -377,91 +482,150 @@ ggcorrplot(outline.col = "white", type = "lower",
   insig = "blank") +  
   labs(title = "Correlation across variables of amenities")
 
+
+
 ```
 
-# model fitting
+
+
+# Model fitting
 ## create testing and training set
+
+
 ```{r train test split}
+
 # hold out on 2019
-featuresNet19 <- featuresNet %>%
-  filter(year==2019)
+featuresNet19 <-
+  featuresNet %>%
+  filter(year == 2019)
 
 # train and test on 2016, 2017, 2018
-featuresNetrest <- featuresNet %>%
+featuresNet161718 <-
+  featuresNet %>%
   filter(year %in% c(2016, 2017, 2018))
 
+# set random seed to replicate results
 set.seed(326)
-trainIndex <- createDataPartition(featuresNetrest$permitCount, p = .75,
-                                  list = FALSE,
-                                  times = 1)
-train <- featuresNetrest[trainIndex,] 
-test <- featuresNetrest[-trainIndex,] # test data within training data for tuning
+
+# partition the data
+trainIndex <-
+  createDataPartition(
+    featuresNet161718$permitCount,
+    p = .75,
+    list = FALSE,
+    times = 1)
+
+
+train <-
+  featuresNet161718[trainIndex,] 
+
+test <-
+  featuresNet161718[-trainIndex,] # test data within training data for tuning
+
+
 ```
 
 
 ## modeling - binomial
 ```{r bim0}
+
 # model0: select the vars with highest R sq every theoretical group
 biM0 <-
     glm(as.factor(permitDummy) ~ 
           year +
-          salesCount + indOwnerDelta + 
+          salesCount +
+          indOwnerDelta + 
           meanSqftPrice + 
-          medRent + perc_medRentChange2yr +
+          medRent +
+          perc_medRentChange2yr +
           meanDebt +
           totalVacantLots +
-          pop + perc_popChange2yr +
-          perc_white + perc_whiteChange2yr + 
-          medInc + + perc_medIncChange2yr +
-          licenses + parksNN + schoolsNN + transitNN + crime, family="binomial"(link="logit"), 
+          pop +
+          perc_popChange2yr +
+          perc_white +
+          perc_whiteChange2yr + 
+          medInc + 
+          perc_medIncChange2yr +
+          licenses +
+          parksNN +
+          schoolsNN +
+          transitNN +
+          crime,
+        family="binomial"(link = "logit"), 
       data = train)
 
 summary(biM0)
 
-biM0_out <- data.frame(outcome = as.factor(test$permitDummy),
-  probs = predict(biM0, test, type="response"))
 
-#calculate AUC
+biM0_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(biM0, test, type="response"))
+
+
+# calculate AUC od biM0
 biM0_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM0_out$probs))
 biM0_AUC # 0.8559
 
-#calculate threshold and confusion matrix to evaluate model
+# calculate threshold and confusion matrix to evaluate model
 pred <- prediction(biM0_out[is.na(biM0_out$probs)==FALSE,]$probs, biM0_out[is.na(biM0_out$probs)==FALSE,]$outcome)
+
 f.perf<-performance(pred,"f")
+
 plot(f.perf)
 
-F.score <-c(f.perf@y.values[[1]])
-cutoff<-c(f.perf@x.values[[1]])
-F.score_table<-data.frame(cbind(F.score, cutoff))
+
+F.score <- c(f.perf@y.values[[1]])
+
+cutoff <- c(f.perf@x.values[[1]])
+
+F.score_table <- data.frame(cbind(F.score, cutoff))
+
 fscore <- F.score_table[which.max(F.score_table$F.score),]
 
 biM0_out <- 
   biM0_out %>%
-  mutate(predOutcome  = as.factor(ifelse(biM0_out$probs > fscore$cutoff , 1, 0)))
+  mutate(predOutcome = as.factor(ifelse(biM0_out$probs > fscore$cutoff, 1, 0)))
+
 
 caret::confusionMatrix(biM0_out$predOutcome, biM0_out$outcome, 
                        positive = "1")
 # accuracy: 0.8388, sens: 0.6683, spec: 0.876
+
+
 ```
 
-```{r bim1a}
+
+# Model 1A
+
+```{r model 1a}
+
 # model1a: eliminate correlated vars, keeping salesCount
 biM1a <-
     glm(permitDummy ~ 
           year +
-          salesCount + indOwnerDelta + 
+          salesCount +
+          indOwnerDelta + 
           meanSqftPrice + 
-          perc_medRentChange2yr + #medRent + 
+          perc_medRentChange2yr +
+          #medRent + 
           meanDebt +
           totalVacantLots +
-          perc_popChange2yr + #pop + 
-          perc_whiteChange2yr + #perc_white + 
-          medInc + perc_medIncChange2yr +
-          licenses, # + parksNN + schoolsNN + transitNN + crime, 
-        family="binomial"(link="logit"), 
-      data = train)
+          perc_popChange2yr +
+          #pop + 
+          perc_whiteChange2yr +
+          #perc_white + 
+          medInc +
+          perc_medIncChange2yr +
+          licenses,
+        # + parksNN
+        # + schoolsNN
+        # + transitNN
+        # + crime
+        family = "binomial"(link = "logit"), 
+        data = train)
 
 summary(biM1a)
+
 
 biM1a_out <- data.frame(outcome = as.factor(test$permitDummy),
   probs = predict(biM1a, train, type="response"))
@@ -1012,3 +1176,57 @@ ggplot() +
 #           metric="ROC", trControl = ctrl)
 # Error in apply(testOutput[, lev], 1, function(x) x/sum(x)) : dim(X) must have a positive length
 ```
+
+
+
+```{r}
+
+
+      
+      popYr <- demoData[paste0('pop', yr)]
+      popYr1 <- demoData[paste0('pop', yr1)]
+      popYr2 <- demoData[paste0('pop', yr2)] 
+      
+      percWhiteYr <- demoData[paste0('percWhite', yr)]
+      percWhiteYr1 <- demoData[paste0('percWhite', yr1)]
+      percWhiteYr2 <- demoData[paste0('percWhite', yr2)]
+      
+      medIncYr <- demoData[paste0('medInc', yr)]
+      medIncYr1 <- demoData[paste0('medInc', yr1)]
+      medIncYr2 <- demoData[paste0('medInc', yr2)]
+      
+      medRentYr <- demoData[paste0('medRent', yr)]
+      medRentYr1 <- demoData[paste0('medRent', yr1)]
+      medRentYr2 <- demoData[paste0('medRent', yr2)]
+      
+      demoData <-
+        demoData %>%
+        mutate(popChange1 = ((popYr - popYr1) / popYr1),
+               popChange2 = ((popYr - popYr2) / popYr2)) %>%
+        rename(!!paste0('popChange1yr', yr, yr1) := popChange1,
+               !!paste0('popChange2yr', yr, yr2) := popChange2) %>%
+        mutate(percWhiteChange1 = (percWhiteYr - percWhiteYr1),
+               percWhiteChange2 = (percWhiteYr - percWhiteYr2)) %>%
+        rename(!!paste0('percWhiteChange1yr', yr, yr1) := percWhiteChange1,
+               !!paste0('percWhiteChange2yr', yr, yr2) := percWhiteChange2) %>%
+        mutate(medIncChange1 = ((medIncYr - medIncYr1) / medIncYr1),
+               medIncChange2 = ((medIncYr - medIncYr2) / medIncYr2)) %>%
+        rename(!!paste0('medIncChange1yr', yr, yr1) := medIncChange1,
+               !!paste0('medIncChange2yr', yr, yr2) := medIncChange2) %>%
+        mutate(medRentChange1 = (ifelse(medRentYr1 > 0, (medRentYr - medRentYr1) / medRentYr1, 0)),
+               medRentChange2 = (ifelse(medRentYr2 > 0, (medRentYr - medRentYr2) / medRentYr2, 0))) %>%
+        rename(!!paste0('medRentChange1yr', yr, yr1) := medRentChange1,
+               !!paste0('medRentChange2yr', yr, yr2) := medRentChange2)
+      }
+    }
+
+  lastYearData <-
+    demoData %>%
+    replace(is.na(.), 0)
+  
+}
+
+```
+
+
+

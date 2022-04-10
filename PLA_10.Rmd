@@ -25,20 +25,31 @@ library(basemaps)
 library(caret)
 library(geojsonsf)
 library(gganimate)
+library(ggcorrplot)
+library(ggforce)
+library(ggmap)
+library(ggplot2)
 library(gifski)
 library(gridExtra)
+library(Hmisc)
 library(kableExtra)
 library(knitr)
 library(lubridate)
 library(mapview)
+library(pROC)
+library(randomForest)
 library(riem)
+library(ROCR)
 library(scales)
 library(sf)
 library(spdep)
+library(stargazer)
 library(tidycensus)
 library(tidyverse)
 library(tigris)
 library(viridis)
+library(yardstick)
+
 
 # R options setup
 options(scipen = 999)
@@ -269,15 +280,15 @@ vacantLandProps <- propertiesData %>%
 saveRDS(vacantLandProps, file = "vacantLandProps.rds")
 
 
-
+# Save feature as JSON for APP
 vacantLandJSON <-
   vacantLandProps %>%
   dplyr::select(geometry) %>%
   sample_n(., 1000) %>%
   sf_geojson(.)
 
-
-write(vacantLandJSON, "./json/vacantLand.json")
+# save JSON locally
+# write(vacantLandJSON, "./json/vacantLand.json")
 
 
 ```
@@ -300,7 +311,6 @@ majMinJSON <-
 write(majMinJSON, "./json/majMin.json")
 
 
-
 incomePolygon <- demographics %>%
   filter(nhIncome == 0) %>%
   dplyr::select(geometry) %>%
@@ -319,10 +329,160 @@ write(incomeJSON, "./json/income.json")
 
 
 
+### Tax Delinquent Vacant Lots
+
+```{r supply tax delinquencies}
+
+# [source]('https://www.opendataphilly.org/dataset/property-tax-delinquencies')
+
+# Real Estate Delinquencies from OpenData Philly:
+delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
+
+# Variables - Tax Delinquencies (53 vars)
+delinquenciesVars <-
+  c("opa_number",                     # KEEP to JOIN****
+    #"street_address",                 # KEEP to JOIN check****
+    "total_due",                      # KEEP ------------------------------------The total amount owner owes.
+    "is_actionable",                  # KEEP?*** --------------------------------Action can be taken against the delinquent property.
+    "num_years_owed",                 # KEEP ***for adverse possession reference
+    "most_recent_year_owed",          # KEEP for reference
+    "oldest_year_owed",               # KEEP for reference
+    "most_recent_payment_date",       # KEEP for reference
+    "total_assessment",               # KEEP for reference
+    #"building_code",                  # ???? ------------------------------------Building codes describe the building.
+    #"general_building_description",   # ???? ------------------------------------General description of how the building is used.
+    #"building_category",              # ???? ------------------------------------Type of Building Group (residential, commercial, etc.).
+    "sheriff_sale",                   # KEEP*** ---------------------------------Property is in the Sheriff Sale Process (any stage).
+    "liens_sold_1990s",               # KEEP*** ---------------------------------Property was included in 1997 Lien Sale.
+    "liens_sold_2015")                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
 
 
-```{r}
+# Data wrangling
+delinquenciesData <- delinquencies %>%
+  dplyr::select(delinquenciesVars) %>%
+  mutate(opa_number = sprintf("%09d", opa_number))
 
+
+# JOIN to properties
+# propertiesData <---> delinquenciesData
+delinquenciesProps <- propertiesData %>%
+  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
+  st_sf()
+
+# save locally
+# saveRDS(delinquencies, file = "delinquencies.rds")
+
+# map vacant properties (points)
+delinquenciesVacantProps <-
+  left_join(vacantLandProps,
+            delinquenciesProps %>% st_drop_geometry() %>% mutate(delinquentStatus = 1),
+            by = "parcel_number") %>%
+  mutate(delinquentStatus = ifelse(is.na(delinquentStatus) == F, 1, 0),
+         delinquentType = ifelse(liens_sold_1990s == T, 2, delinquentStatus), # delinquent type: 0 not, 1 yes, 2 us bank
+         delinquentType = replace_na(delinquentType, 0))
+
+
+```
+
+
+---
+
+
+### Sheriff Sales
+
+
+```{r data: transfers}
+
+# [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
+
+# OpenDataPhilly Endpoint of Property Assessment History:
+# transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
+# transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
+
+# OR load locally
+transfers <- readRDS('../data/local/transfers.rds')
+
+# OpenDataPhilly - Transfers (48 variables)
+transfersVars <- 
+  c("document_type",                # KEEP*** -----------------------------------refers to type of Real Estate Transaction
+    "display_date",                 # KEEP***
+    "street_address",               # KEEP for JOIN check
+    "grantors",                     # KEEP --------------------------------------seller (on deeds), or borrower (on mortgages)
+    "grantees",                     # KEEP --------------------------------------buyer, recipient, new owner, or lien holder
+    "total_consideration",          # KEEP?** -----------------------------------good exchanged for the real estate (usually money)
+    "opa_account_num")              # KEEP****to join
+
+# Data wrangling
+transfersData <- transfers %>%
+  dplyr::select(all_of(transfersVars)) %>%
+  filter(!is.na(opa_account_num)) %>%
+  filter(document_type %in% c('DEED',
+                              'DEED LAND BANK',
+                              'DEED MISCELLANEOUS',
+                              'DEED MISCELLANEOUS TAXABLE',
+                              'DEED OF CONDEMNATION',
+                              'DEED SHERIFF'))
+
+# JOIN to properties
+# propertiesData <---> transfersData
+
+# if a parcel_number has multiple deeds, I manipulated data to shift deed sheriff first
+# so distinct() will grab deed sheriff and neglect others
+transfersProps <- propertiesData %>%
+  inner_join(transfersData, by= c('parcel_number'='opa_account_num'))%>% 
+  mutate(document_type = factor(document_type,
+                                labels(c("DEED SHERIFF" = 1,
+                                         "DEED" = 2,
+                                         "DEED MISCELLANEOUS" = 3,
+                                         "DEED OF CONDEMNATION" = 4,
+                                         "DEED LAND BANK" = 5,
+                                         "DEED MISCELLANEOUS TAXABLE" = 6))))
+  
+# save locally
+# saveRDS(transfers, file = "transfers.rds")
+
+```
+
+
+
+
+
+```{r data: sheriff sales, fig.width= 6, fig.height= 6}
+
+# sheriff sales after 2021 from client
+sheriffSales_21 <- read_csv('./data/sheriffSales_21.csv') %>%
+  distinct(OPA, .keep_all=TRUE)                                                # remove duplicates
+
+# Sheriff Sales before 2021 from real estate transfers data (completed)
+sheriffSales_20 <-
+  transfersProps %>%
+  filter(document_type == "DEED SHERIFF") %>%
+  arrange(parcel_number, document_type) %>%
+  distinct(parcel_number, .keep_all = TRUE)
+
+
+# join all sheriff sales info we have together
+## sheriff sales data from transfers
+sheriffProps <-
+  left_join(
+    delinquenciesVacantProps,
+    st_drop_geometry(sheriffSales_20),
+    by = "parcel_number") %>%
+  distinct(parcel_number, .keep_all = T) %>%
+  merge(., sheriffSales_21,
+        by.x = "parcel_number", by.y = "OPA", all.x = T, no.dups = T) %>%
+  mutate(pastSheriffSale = ifelse(document_type == "DEED SHERIFF", 1, 0)) %>%   #  past records only
+  mutate(pastSheriffSale = replace_na(pastSheriffSale, 0)) %>%
+  mutate(futureSheriffSale = ifelse(document_type == "DEED SHERIFF" | is.na(Status) == F | sheriff_sale == "Y", 1, 0)) %>% # future
+  mutate(futureSheriffSale = replace_na(futureSheriffSale, 0)) %>%
+  mutate(allSheriffSales = ifelse(pastSheriffSale == 1 | futureSheriffSale == 1, 1, 0),
+         sheriffSaleYear = year(as.Date(display_date))) 
+
+
+```
+
+
+```{r kensington examples}
 
 kensingtonTracts <- 
   c("42101014400",
@@ -386,73 +546,6 @@ kenVacantPropsJSON <-
 write(kenVacantPropsJSON, "./json/kenVacantProps.json")
 
 
-```
-
-
-
-
----
-
-
-### Tax Delinquent Vacant Lots
-
-```{r supply tax delinquencies}
-
-# [source]('https://www.opendataphilly.org/dataset/property-tax-delinquencies')
-
-# Real Estate Delinquencies from OpenData Philly:
-delinquencies <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*+FROM+real_estate_tax_delinquencies&filename=real_estate_tax_delinquencies&format=csv&skipfields=cartodb_id,the_geom,the_geom_webmercator')
-
-# Variables - Tax Delinquencies (53 vars)
-delinquenciesVars <-
-  c("opa_number",                     # KEEP to JOIN****
-    #"street_address",                 # KEEP to JOIN check****
-    #"owner",                          # UNNECESSARY
-    #"co_owner",                       # UNNECESSARY
-    "total_due",                      # KEEP ------------------------------------The total amount owner owes.
-    "is_actionable",                  # KEEP?*** --------------------------------Action can be taken against the delinquent property.
-    "num_years_owed",                 # KEEP ***for adverse possession reference
-    "most_recent_year_owed",          # KEEP for reference
-    "oldest_year_owed",               # KEEP for reference
-    "most_recent_payment_date",       # KEEP for reference
-    #"year_of_last_assessment",        # KEEP for reference
-    "total_assessment",               # KEEP for reference
-    #"building_code",                  # ???? ------------------------------------Building codes describe the building.
-    #"general_building_description",   # ???? ------------------------------------General description of how the building is used.
-    #"building_category",              # ???? ------------------------------------Type of Building Group (residential, commercial, etc.).
-    "sheriff_sale",                   # KEEP*** ---------------------------------Property is in the Sheriff Sale Process (any stage).
-    "liens_sold_1990s",               # KEEP*** ---------------------------------Property was included in 1997 Lien Sale.
-    "liens_sold_2015")                # KEEP*** ---------------------------------Property is included in Recent Lien Sales.
-
-
-# Data wrangling
-delinquenciesData <- delinquencies %>%
-  dplyr::select(delinquenciesVars) %>%
-  mutate(opa_number = sprintf("%09d", opa_number))
-
-
-# JOIN to properties
-# propertiesData <---> delinquenciesData
-delinquenciesProps <- propertiesData %>%
-  inner_join(delinquenciesData, by = c('parcel_number'='opa_number')) %>%
-  st_sf()
-
-# save locally
-# saveRDS(delinquencies, file = "delinquencies.rds")
-
-# map vacant properties (points)
-delinquenciesVacantProps <-
-  left_join(vacantLandProps,
-            delinquenciesProps %>% st_drop_geometry() %>% mutate(delinquentStatus = 1),
-            by = "parcel_number") %>%
-  mutate(delinquentStatus = ifelse(is.na(delinquentStatus) == F, 1, 0),
-         delinquentType = ifelse(liens_sold_1990s == T, 2, delinquentStatus), # delinquent type: 0 not, 1 yes, 2 us bank
-         delinquentType = replace_na(delinquentType, 0))
-
-
-```
-
-```{r}
 
 # Get delinquent lots in South Kensington
 kenDelinquent <-
@@ -492,119 +585,6 @@ m(kensington)
 m(kenVacantLand)
 
 
-
-```
-
-
----
-
-
-### Sheriff Sales
-
-
-```{r data: transfers}
-
-# [source]('https://www.opendataphilly.org/dataset/real-estate-transfers')
-
-# OpenDataPhilly Endpoint of Property Assessment History:
-# transfers <- read_csv('https://opendata-downloads.s3.amazonaws.com/rtt_summary.csv')
-# transfers <- read_csv('https://opendata.arcgis.com/datasets/88e5bc291b834606bd49f6fd6dca226e_0.csv')
-
-# OR load locally
-transfers <- readRDS('../data/local/transfers.rds')
-
-# OpenDataPhilly - Transfers (48 variables)
-transfersVars <- 
-  c("document_type",                # KEEP*** -----------------------------------refers to type of Real Estate Transaction
-    "display_date",                 # KEEP***
-    "street_address",               # KEEP for JOIN check
-    "grantors",                     # KEEP --------------------------------------seller (on deeds), or borrower (on mortgages)
-    "grantees",                     # KEEP --------------------------------------buyer, recipient, new owner, or lien holder
-    "total_consideration",          # KEEP?** -----------------------------------good exchanged for the real estate (usually money)
-    #"assessed_value",               # KEEP?** -----------------------------------assess value by OPA
-    #"common_level_ratio",           # UNNECESSARY -------------------------------fair market : assessment values ratio
-    #"fair_market_value",            # KEEP?** -----------------------------------assessment value by common level ratio
-    #"receipt_date",                 # UNNECESSARY - display_date is used
-    #"recording_date",               # UNNECESSARY - display_date is used
-    #"document_date",                # UNNECESSARY - display_date is used
-    "opa_account_num")              # KEEP****to join
-    #"property_count")               # KEEP --------------------------------------Number of properties in document
-
-
-# Data wrangling
-transfersData <- transfers %>%
-  dplyr::select(all_of(transfersVars)) %>%
-  filter(!is.na(opa_account_num)) %>%
-  filter(document_type %in% c('DEED',
-                              'DEED LAND BANK',
-                              'DEED MISCELLANEOUS',
-                              'DEED MISCELLANEOUS TAXABLE',
-                              'DEED OF CONDEMNATION',
-                              'DEED SHERIFF'))
-
-# JOIN to properties
-# propertiesData <---> transfersData
-
-# if a parcel_number has multiple deeds, I manipulated data to shift deed sheriff first
-# so distinct() will grab deed sheriff and neglect others
-transfersProps <- propertiesData %>%
-  inner_join(transfersData, by= c('parcel_number'='opa_account_num'))%>% 
-  mutate(document_type = factor(document_type,
-                                labels(c("DEED SHERIFF" = 1,
-                                         "DEED" = 2,
-                                         "DEED MISCELLANEOUS" = 3,
-                                         "DEED OF CONDEMNATION" = 4,
-                                         "DEED LAND BANK" = 5,
-                                         "DEED MISCELLANEOUS TAXABLE" = 6))))
-
-  
-# save locally
-# saveRDS(transfers, file = "transfers.rds")
-
-```
-
-
-
-
-
-```{r data: sheriff sales, fig.width= 6, fig.height= 6}
-
-# sheriff sales after 2021 from client
-sheriffSales_21 <- read_csv('./data/sheriffSales_21.csv') %>%
-  distinct(OPA, .keep_all=TRUE)                                                # remove duplicates
-
-# Sheriff Sales before 2021 from real estate transfers data (completed)
-sheriffSales_20 <-
-  transfersProps %>%
-  filter(document_type == "DEED SHERIFF") %>%
-  arrange(parcel_number, document_type) %>%
-  distinct(parcel_number, .keep_all = TRUE)
-
-
-# join all sheriff sales info we have together
-## sheriff sales data from transfers
-sheriffProps <-
-  left_join(
-    delinquenciesVacantProps,
-    st_drop_geometry(sheriffSales_20),
-    by = "parcel_number") %>%
-  distinct(parcel_number, .keep_all = T) %>%
-  merge(., sheriffSales_21,
-        by.x = "parcel_number", by.y = "OPA", all.x = T, no.dups = T) %>%
-  mutate(pastSheriffSale = ifelse(document_type == "DEED SHERIFF", 1, 0)) %>%   #  past records only
-  mutate(pastSheriffSale = replace_na(pastSheriffSale, 0)) %>%
-  mutate(futureSheriffSale = ifelse(document_type == "DEED SHERIFF" | is.na(Status) == F | sheriff_sale == "Y", 1, 0)) %>% # future
-  mutate(futureSheriffSale = replace_na(futureSheriffSale, 0)) %>%
-  mutate(allSheriffSales = ifelse(pastSheriffSale == 1 | futureSheriffSale == 1, 1, 0),
-         sheriffSaleYear = year(as.Date(display_date))) 
-
-
-```
-
-
-```{r}
-
-
 # Get vacant lots in South Kensington
 kenSheriff <-
   vacantDelinquenciesProps %>%
@@ -620,13 +600,6 @@ kenSheriffJSON <-
   gsub("\\}", ',', .)
   
 write(kenSheriffJSON, "./json/kenSheriff.json")
-
-
-
-
-
-m(kenSheriff)
-
 
 ```
 
@@ -769,10 +742,6 @@ permitsProps <- propertiesData %>%
 ## Development Activity
 
 
-
-
-
-
 ```{r fig.width= 8, fig.height=4}
 
 allPermitsProps <-
@@ -810,7 +779,6 @@ tabPermitBothByYr <-
 
 
 ## Feature Engineering
-
 
 ### Permits 
 
@@ -882,7 +850,6 @@ permitsNetYears <-
   st_sf()
 
 
-
 # random cross validation ID (out of 100) for later use
 # mutate(uniqueID = rownames(.)) %>%
 # mutate(cvID = sample(round(nrow(fishnet)/24), size=nrow(fishnet), replace=T)) 
@@ -917,9 +884,10 @@ saveRDS(permitsNetYears, "permitYears.Rds")
 
 
 
+## Feature Engineering
 
 
-### A. Sales over the last three years
+### 1. Development Prospects
 
 ```{r sales}
 
@@ -966,6 +934,7 @@ salesPropsNet <-
   st_join(fishnet, left = F)
 
 
+# SALES COUNT
 # Get sales count by fishnet from 2016 to 2019
 salesNetYears <- 
   salesPropsNet %>%
@@ -975,6 +944,8 @@ salesNetYears <-
   right_join(yearPanel) %>%
   replace(is.na(.), 0)
 
+
+# PRICE BY SQ FOOT
 # Get sqft price paid by fishnet from 2016 to 2019
 sqftNetYears <-
   salesPropsNet %>%
@@ -984,6 +955,8 @@ sqftNetYears <-
   right_join(yearPanel) %>%
   replace(is.na(.), 0)
 
+
+# TOTAL PRICE
 # Get total price paid by fishnet from 2016 to 2019
 priceNetYears <-
   salesPropsNet %>%
@@ -993,6 +966,8 @@ priceNetYears <-
   right_join(yearPanel) %>%
   replace(is.na(.), 0)
 
+
+# INDIVIDUAL OWNERS
 # Get change in number of individual owners by fishnet from 2016 to 2019
 individualOwnersNetYears <- 
   salesPropsNet %>%
@@ -1006,14 +981,7 @@ individualOwnersNetYears <-
   replace(is.na(.), 0)
 
 
-```
-
-
-
-### B. Amount of delinquent debt
-
-```{r debt}
-
+# DEBT
 # All delinquent properties
 debtNetYears <- delinquenciesProps %>%
   filter(oldest_year_owed < 2020) %>% # take out the ones whose debt started after 2018
@@ -1026,13 +994,8 @@ debtNetYears <- delinquenciesProps %>%
   right_join(yearPanel) %>%
   replace(is.na(.), 0)
 
-```
 
-
-### C. Number of vacant lots
-
-```{r vacancy}
-
+# VACANT LOTS
 # get count of vacant lots and cumulative vacant area
 # ***THIS DOES NOT HAVE YEAR DIFFERENCE
 vacantNet <- 
@@ -1047,13 +1010,187 @@ vacantNet <-
   right_join(yearPanel) %>%
   replace(is.na(.), 0)
 
+
+
 ```
 
 
-### E. Exposure to amenities
+
+### 2. Demographic
+
+```{r demographic}
+
+# census variables to request to the API
+censusVars <- c("B01001_001", "B01001A_001", "B19013_001", "B25064_001")
+
+# for loop to get demographic data for years and change in selected variables
+for(year in seq(initYr, endYr)) {
+  yr <- as.character(year - 2000)
+  yr1 <- as.character(year - 2000 - 1)
+  yr2 <- as.character(year - 2000 - 2)
+  
+  # get this year data
+  demoData <-
+    get_acs(
+      geography = "tract",
+      variables = censusVars, 
+      year = year, 
+      state = "PA", 
+      geometry = T, 
+      county = c("Philadelphia"),
+      output = "wide") %>%
+    mutate(!!paste0('percWhite', yr) := B01001A_001E/B01001_001E) %>%
+    rename(!!paste0('pop', yr) := B01001_001E,
+           !!paste0('medInc', yr) := B19013_001E,
+           !!paste0('medRent', yr) := B25064_001E) %>%
+    dplyr::select(-ends_with('M'), -NAME, -B01001A_001E) %>%
+    st_drop_geometry()
+  
+
+  if (year > initYr) {
+    demoData <-
+      full_join(lastYearData, demoData, by = 'GEOID')
+    
+    if (year >= startYr) {
+      demoData <-
+        demoData %>%
+        mutate(popChange1 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr1)])/demoData[paste0('pop', yr1)])[,1],
+               popChange2 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr2)])/demoData[paste0('pop', yr2)])[,1]) %>%
+        rename(!!paste0('popChange1yr', yr, yr1) := popChange1,
+               !!paste0('popChange2yr', yr, yr2) := popChange2) %>%
+        mutate(percWhiteChange1 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr1)])[,1],
+               percWhiteChange2 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr2)])[,1]) %>%
+        rename(!!paste0('percWhiteChange1yr', yr, yr1) := percWhiteChange1,
+               !!paste0('percWhiteChange2yr', yr, yr2) := percWhiteChange2) %>%
+        mutate(medIncChange1 = ((demoData[paste0('medInc', yr)] - demoData[paste0('medInc', yr1)])/demoData[paste0('medInc', yr1)])[,1],
+               medIncChange2 = ((demoData[paste0('medInc', yr)] - demoData[paste0('medInc', yr2)])/demoData[paste0('medInc', yr2)])[,1]) %>%
+        rename(!!paste0('medIncChange1yr', yr, yr1) := medIncChange1,
+               !!paste0('medIncChange2yr', yr, yr2) := medIncChange2) %>%
+        mutate(medRentChange1 = ((demoData[paste0('medRent', yr)] - demoData[paste0('medRent', yr1)])/demoData[paste0('medRent', yr1)])[,1],
+               medRentChange2 = ((demoData[paste0('medRent', yr)] - demoData[paste0('medRent', yr2)])/demoData[paste0('medRent', yr2)])[,1]) %>%
+        rename(!!paste0('medRentChange1yr', yr, yr1) := medRentChange1,
+               !!paste0('medRentChange2yr', yr, yr2) := medRentChange2)
+      }
+    }
+
+  lastYearData <-
+    demoData %>%
+    replace(is.na(.), 0)
+  
+}
+
+# variables from reference lag years to take out
+initYrVars <-
+  c("pop14",
+    "medInc14",
+    "medRent14",
+    "percWhite14",
+    "pop15",
+    "medInc15",
+    "medRent15",
+    "percWhite15")
+
+# join to census tracts
+demoJoined <- 
+  demoData %>%
+  left_join(phltracts, by = "GEOID") %>%
+  dplyr::select(-all_of(initYrVars)) %>%
+  st_sf()
+
+# get all variables names
+demoVars <- colnames(demoJoined)
 
 
-#### E1. Schools
+# This function to iterate over year variable, interpolates them to the census
+# tract geometry to a fishnet cell and JOIN them by year and fishnet cell
+createFeature <-
+  function(input, varList, fishnet) {
+    output <- data.frame(matrix(ncol = 3, nrow = 0))
+    
+    name <- sub("[0-9]{2}$", "", varList[1])
+    
+    for (var in varList) {
+      year = as.numeric(paste0(20, str_sub(var, -2, -1)))
+    
+      data <-
+        st_interpolate_aw(input[var], fishnet, extensive = T) %>%
+        as.data.frame(.) %>%
+        left_join(fishnet, ., by = "geometry") %>%
+        rename(!!name := var) %>%
+        mutate(year = year) %>%
+        st_drop_geometry() %>%
+        select(year, uniqueID, name)
+      
+      output <- rbind(output, data)
+      
+      }
+    return(output)
+    }
+
+# population variables
+varsPop <- as.vector(demoVars[grep('pop[0-9]', demoVars)])
+varsPopChange1yr <- as.vector(demoVars[grep('popChange1yr', demoVars)])
+varsPopChange2yr <- as.vector(demoVars[grep('popChange2yr', demoVars)])
+
+# white variables
+varsWhite <- as.vector(demoVars[grep('percWhite[0-9]', demoVars)])
+varsWhiteChange1yr <- as.vector(demoVars[grep('percWhiteChange1yr', demoVars)])
+varsWhiteChange2yr <- as.vector(demoVars[grep('percWhiteChange2yr', demoVars)])
+
+# Median income variables
+varsMedInc <- as.vector(demoVars[grep('medInc[0-9]', demoVars)])
+varsMedIncChange1yr <- as.vector(demoVars[grep('medIncChange1yr', demoVars)])
+varsMedIncChange2yr <- as.vector(demoVars[grep('medIncChange2yr', demoVars)])
+
+# median Rent variables
+varsMedRent <- as.vector(demoVars[grep('medRent[0-9]', demoVars)])
+varsMedRentChange1yr <- as.vector(demoVars[grep('medRentChange1yr', demoVars)])
+varsMedRentChange2yr <- as.vector(demoVars[grep('medRentChange2yr', demoVars)])
+
+
+
+# Panel with all demographic information
+demoYearsNet <- 
+  yearPanel %>%
+  left_join(., createFeature(demoJoined, varsPop, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsPopChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsPopChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsWhite, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsWhiteChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsWhiteChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsMedInc, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsMedIncChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsMedIncChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+  replace(is.na(.), 0)
+
+# Panel with all rent information
+rentYearsNet <- 
+  yearPanel %>%
+  left_join(., createFeature(demoJoined, varsMedRent, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsMedRentChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+  left_join(., createFeature(demoJoined, varsMedRentChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+  replace(is.na(.), 0)
+
+
+# SAVE locally
+saveRDS(demoYearsNet, file = "demoNet.rds")
+saveRDS(rentYearsNet, file = "rentNet.rds")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+### 3. Exposure to amenities and disamenities
+
+#### 3A. Schools
 ```{r exposure schools}
 
 # [source](https://metadata.phila.gov/#home/datasetdetails/5543866320583086178c4ef1/)
@@ -1078,7 +1215,7 @@ schoolsData <-
 
 ```
 
-#### E2. Parks
+#### 3B. Parks
 ```{r exposure parks}
 
 # [source](https://metadata.phila.gov/#home/datasetdetails/5dc1aeb93741fa001504b10b/representationdetails/5dc1aeb93741fa001504b10f/)
@@ -1094,7 +1231,7 @@ parksData <-
 
 ```
 
-#### E3. Transit
+#### 3C. Transit
 
 ```{r exposure transit}
 
@@ -1117,7 +1254,7 @@ transitData <-
 
 ```
 
-#### E4. Food Licenses
+#### 3D. Food Licenses
 
 ```{r food licenses}
 
@@ -1169,7 +1306,7 @@ licensesData <-
 
 
 
-#### E5. Crime
+#### 3E. Crime
 
 ```{r exposure crime}
 
@@ -1215,6 +1352,8 @@ for (i in startYr:endYr) {
                    year = i))
 }
 
+
+
 # add both count and exposure to panel
 crimeNetYears <-
   merge(
@@ -1226,10 +1365,6 @@ crimeNetYears <-
       right_join(yearPanel) %>%
       replace(is.na(.), 0),
     st_drop_geometry(crimeYears))
-
-
-??get.knnx()
-
 
 ```
 
@@ -1273,8 +1408,6 @@ exposureNetYears <-
     exposureNet %>%
       right_join(yearPanel),
     crimeNetYears)
-
-
 
 ```
 
@@ -1370,6 +1503,160 @@ jobsNetYears <-
 
 
 
+# GILLIANS FEATURES >>>>
+
+```{r utility functions}
+
+# ggplot map theme for us to build on
+mapTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent") # this set the background transparent
+    )
+}
+mapGuide_ggplot <- function() {
+  guides(
+    colour = guide_legend(override.aes = list(size=5)) # this set the size for the point on legend
+    ) 
+}
+
+chartTheme_ggplot <- function() {
+  theme(
+    rect = element_rect(fill = "transparent"), # this set the background transparent
+    axis.text = element_text(size=12),
+    axis.title.x = element_text(size=12),
+    axis.title.y = element_text(size=12),
+  )
+}
+
+
+# save ggplot map configurations
+mapSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+chartSave_ggplot <- function(fileName) {
+  ggsave(paste("visualizations/1st_presentation/", fileName, ".png", sep=""), #Gillian's path
+         plot = last_plot(), dpi = 300, 
+         width = 8, height = 5, units = "in", bg = "transparent")
+}
+
+
+```
+
+
+# Read data that Adrian prepared
+
+
+```{r}
+
+# joined data
+
+vacantLandProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/vacantLandProps.rds")
+parcelsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/parcelProps.rds")
+permitsProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/permitsProps.rds")
+transfersProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps.rds")
+delinquenciesProps <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps.rds")
+
+
+# joined data created by Gillian
+
+delinquenciesProps_allYrs <-
+  readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/delinquenciesProps_allYrs.rds")
+transfersProps_allYrs <-
+  readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/transfersProps_allYrs.rds")
+zoningPermitsProps_allYrs <-
+  readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/zoningPermitsProps_allYrs.rds")
+
+
+```
+
+
+
+
+# map of vacant properties
+
+```{r}
+# base_map <- get_stamenmap(c(left = -75.34937, bottom = 39.84524, right = -74.92109, top = 40.17457),
+#                            maptype = "terrain-background") # square
+base_map <- get_stamenmap(c(left = -75.54937, bottom = 39.84524, right = -74.82109, top = 40.17457),
+                           maptype = "terrain-background") # rectangle (wider)
+
+ggmap(base_map) +
+  geom_sf(data=phlcounty, inherit.aes = FALSE) + 
+  geom_sf(data=vacantLandProps, color=gillianpick[2], size=0.01,
+           inherit.aes = FALSE) +
+  geom_sf(data=phlcounty, color=gillianpick[1], fill=NA, size=2, inherit.aes = FALSE) + 
+  coord_sf(crs = st_crs(4326)) +
+  mapTheme_ggplot()
+  
+#mapSave_ggplot("vacantProperties")
+```
+
+
+
+
+
+
+
+# sheriff sale
+```{r}
+
+
+sheriffSale <- delinquenciesProps_allYrs %>%
+  mutate(sheriff = ifelse(sheriff_sale=='Y', 1, 0),
+         year = year(sale_date)) %>%
+  select(sheriff, year) %>%
+  filter(year %in% c(2016, 2017, 2018, 2019))
+sheriffSale16 <- sheriffSale %>%
+  filter(year == 2016)
+sheriffSale17 <- sheriffSale %>%
+  filter(year == 2017)
+sheriffSale18 <- sheriffSale %>%
+  filter(year == 2018)
+sheriffSale19 <- sheriffSale %>%
+  filter(year == 2019)
+
+# join to fishnet
+sheriffNet16 <- sheriffSale16 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2016) 
+sheriffNet17 <- sheriffSale17 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2017) 
+sheriffNet18 <- sheriffSale18 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2018) 
+sheriffNet19 <- sheriffSale19 %>%
+  select(sheriff) %>%
+  aggregate(fishnet, sum, na.rm=TRUE) %>% 
+  mutate(uniqueID = as.numeric(rownames(.)),
+         year=2019) 
+sheriffNet <- rbind(sheriffNet16, sheriffNet17, sheriffNet18, sheriffNet19) %>%
+  replace(is.na(.), 0)
+saveRDS(sheriffNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
+```
+
+# join together
+```{r}
+featureNet <- left_join(demoNet %>% select(-GEOID), considNet %>% st_drop_geometry(), by=c('uniqueID'))
+featureNet <- left_join(featureNet, sheriffNet %>% st_drop_geometry(), by=c('uniqueID'))
+saveRDS(featureNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featureNet.rds")
+```
+
+
+
+
+
+
+
 
 ### Complete feature set
 
@@ -1410,7 +1697,1274 @@ saveRDS(completeNet, "completeNetYears.Rds")
 
 ```
 
-# Moran's I / Hotspots
+
+
+
+
+
+
+
+
+# set up
+
+```{r setup 2, include=FALSE}
+
+# Gillian's working directory
+setwd("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA")
+
+# color scheme
+# https://coolors.co/b98b73-cb997e-ddbea9-ffe8d6-d4c7b0-b7b7a4-a5a58d-6b705c-3f4238 
+gillianpick <- c("#3f4238", "#b98b73", "#f6bd60", "#ff758f", "#2a9d8f")
+#               dark green, dark brown, highlight yellow, highlight pink, highlight blue
+
+```
+
+
+
+
+```{r regression functions}
+
+# Function to plot histogram (used for IV distribution)
+plotDV_histogram <- function(dataset) {
+  nm <- names(dataset)
+  for (i in seq_along(nm)) {
+    print(
+      ggplot(dataset) +
+        geom_histogram(aes_string(x = nm[i]),
+                       fill = "#18B6C4",
+                       color = "white") +
+        labs(title = paste("Distribution of ", nm[i])))
+    }
+  }
+
+
+# Functions to get bivariate regression results
+do.regression <- function (dep, indep) {
+  modsum <- summary(lm (dep ~ indep))
+  modtab <- c(
+    modsum$coefficients[, 1], 
+    modsum$coefficients[, 2], 
+    modsum$coefficients[, 3],    
+    modsum$coefficients[, 4],  
+    modsum$adj.r.squared)
+  round(modtab,digits = 6)
+}
+
+
+get_bivReg <-
+  function(dat_dep, dat_ind, method = "original") {
+    
+    # empty lists
+    tab <- c()
+    rname <- c()
+    dep_i = 0
+    ind_i = 0
+    
+    #  
+    for (y in dat_dep) {
+      if (ind_i == length(dat_dep)) {
+        break
+      }
+    
+    #
+    dep_i =+ 1
+    
+    # 
+    if (method == "logY") {
+      dep_name = paste("log", colnames(dat_dep[dep_i]), sep = "_")
+      } else if (
+        method == "logposY") {
+        dep_name = paste("logpos", colnames(dat_dep[dep_i]), sep = "_")
+        } else {
+      dep_name = colnames(dat_dep[dep_i])
+        }
+    
+    # loop through independent variables
+    for (x in dat_ind) {
+      if (ind_i == length(dat_ind)) {
+        ind_i = 0
+        }
+      ind_i =+ 1
+      
+      ind_name = colnames(dat_ind[ind_i])
+      res <- do.regression(y, x)
+      tab <- rbind(tab, res)
+      rname <- append(rname, paste(dep_name, ind_name, sep="~"))
+    }
+  }
+  
+  # turn results into dataframe and name columns
+  tab <- as.data.frame(tab)
+  colnames(tab) = c("Int", "Beta", "stErrorInt", "StErrorBeta", "TSTATInt", "TSTATBeta", "PVALINT", "PVALBeta", "R2")
+  rownames(tab) = rname
+  
+  return(tab)
+}
+
+
+# Function to plot scatterplot: change in ridership and IV (???)
+
+plot_XY <-
+  function(ind_var_list, dep_var) {
+    dat_by.stop_ACS <-
+      featuresNet %>%
+      dplyr::select(dep_var, ind_var_list) %>%
+      gather(key, value, -dep_var) %>%
+      mutate(key = fct_relevel(key, ind_var_list))
+    
+    plot <- ggplot(dat_by.stop_ACS) +
+      geom_point(aes_string("value", dep_var), color="#18B6C4") +
+      facet_wrap_paginate(~ key, scales = "free", ncol = 2, nrow = 2)
+    
+    for (i in seq(n_pages(plot))) {
+      print(
+        ggplot(dat_by.stop_ACS) +
+          geom_point(aes_string("value", dep_var), color="#18B6C4") +
+          # geom_text(data = cor.demographic, aes(label = paste("r =", round(correlation, 2))),
+          #x=-Inf, y=Inf, vjust = 1.5, hjust = -.1) +
+          geom_smooth(method = "glm", aes_string(x="value", y=dep_var), color="#10767F", size = 1) +
+          # facet_wrap(~ key, scales = "free") +
+          scale_y_continuous(limits=c(-1.5, 30)) +
+          scale_x_continuous(name = substitute(ind_var_list)) +
+          facet_wrap_paginate(~ key, scales = "free_x", ncol = 2, nrow = 2, page=i) +
+          labs(title = paste("relationship between",
+                             substitute(dep_var),
+                             "and predictor variables"),
+               subtitle = "(continous outcomes for numeric variables)") +
+          theme(legend.position = "right")
+        )
+    
+    # Save the plots locally
+    ggsave(paste("visualizations/2nd_presentation/scatterplots/",
+                 substitute(ind_var_list), i, ".png", sep=""), 
+         plot = last_plot(),
+         dpi = 300,
+         width = 8,
+         height = 5,
+         units = "in")
+  }
+}
+
+
+```
+
+
+
+
+```{r load in data}
+
+
+##- join data Adrian and I worked on separately together -##
+
+permitsNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNet.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID))
+demoNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/demo_features.rds")%>%
+  mutate(year = as.numeric(year))
+sheriffNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/sheriffNet.rds")
+adrianNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears2.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID))
+adrianNet2 <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/completeNetYears.rds") %>%
+  mutate(uniqueID = as.numeric(uniqueID)) %>%
+  dplyr::select(uniqueID, year, licenses:crimeNN) %>%
+  st_drop_geometry()
+
+
+
+featuresNet <- left_join(permitsNet, demoNet, by=c("uniqueID", "year")) %>%
+  left_join(sheriffNet, by=c("uniqueID", "year")) %>%
+  left_join(adrianNet, by=c("uniqueID", "year")) %>%
+  left_join(adrianNet2, by=c("uniqueID", "year"))
+
+featuresNet <- featuresNet %>%
+  dplyr::select(-permitCount.y, -salesCount.y, -meanSqftPrice.y, -geometry.y) %>%
+  rename(geometry = geometry.x,
+         permitCount = permitCount.x,
+         salesCount = salesCount.x,
+         meanSqftPrice = meanSqftPrice.x) %>%
+  arrange(uniqueID) %>%
+  mutate(permitDummy = as.factor(ifelse(permitCount>0, 1, 0))) %>%
+  ungroup()
+
+#saveRDS(featuresNet, file = "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds")
+
+
+
+# random forest does not take factors in well, so Gillian re-calculated the dummy again here
+featuresNet <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/featuresNet_modelReady_0326.rds") %>%
+  mutate(permitDummy_numeric = ifelse(permitCount>0, 1, 0))
+
+
+```
+
+
+
+# Exploratory Design Analysis
+
+```{r histogram}
+
+plotDV_histogram(featuresNet)
+
+```
+
+```{r featuress scatterplot}
+
+var_time <-
+  c("year", "lag1years", "lag2years")
+
+var_activities <-
+  c("salesCount", "indOwnerDelta")
+
+var_price <-
+  c("meanSqftPrice", "meanPrice", "medRent", "perc_medRentChange1yr", "perc_medRentChange2yr", "meanDebt")
+
+var_vacant <-
+  c("cumulativeVacantArea", "totalVacantLots", "sheriff")
+
+var_pop <-
+  c("pop", "perc_popChange1yr", "perc_popChange2yr")
+
+var_race <-
+  c("perc_white", "perc_whiteChange1yr", "perc_whiteChange2yr")
+
+var_inc <-
+  c("medInc", "perc_medIncChange1yr", "perc_medIncChange2yr", "jobCount")
+
+var_amenities <-
+  c("licenses", "licensesNN", "parks", "parksNN", "schools", "schoolsNN", "transit", "transitNN", "crime", "crimeNN")
+
+
+# plot_XY(var_time, "permitCount")
+# plot_XY(var_activities, "permitCount")
+# plot_XY(var_price, "permitCount")
+# plot_XY(var_vacant, "permitCount")
+# plot_XY(var_pop, "permitCount")
+# plot_XY(var_race, "permitCount")
+# plot_XY(var_inc, "permitCount")
+# plot_XY(var_amenities, "permitCount")
+
+
+```
+
+```{r box plot and map}
+
+
+# set color palette
+color1 <- "#18B6C4" 
+color2 <- "#18B6C4"
+
+
+featuresNet_sf <-
+  featuresNet %>% 
+  st_sf()
+
+
+featuresNet_noGeo <-
+  featuresNet %>%
+  select(-geometry, -permitDummy, -permitDummy_numeric)
+
+
+
+for (var in colnames(featuresNet_noGeo)) {
+  plot1 <-
+    featuresNet %>%
+    ggplot() +
+          geom_boxplot(aes_string(x=var, y="permitDummy", fill = "permitDummy"), color="#808080") +
+          coord_flip() +
+          scale_fill_manual(values = c(color1, color2)) +
+          scale_y_discrete(labels=c("no permits", "had permits")) +
+          labs(title= "Feature:",
+           subtitle = var,
+           x = "",
+           y = "") +
+          theme(
+            #axis.text.x = element_blank(),
+            legend.position = "none",
+            plot.background = element_blank(),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            strip.background = element_rect(fill = "#ffffff"),
+            strip.text.y = element_text(size = 12, color = colors[1], hjust=0.05)
+            )
+  
+  plot2 <- 
+    featuresNet_sf %>%
+    ggplot() +
+      geom_sf(data=featuresNet_sf, aes_string(fill=var), color=NA, inherit.aes = FALSE) +
+      scale_fill_viridis(option = "mako",
+                         name = "value",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = 1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+  
+  
+  plot <- grid.arrange(plot1,
+                       plot2,
+                       ncol = 2,
+                       widths = c(2, 3))
+  
+  ggsave(paste("visualizations/2nd_presentation/boxMap/", var, ".png", sep=""), #Gillian's path
+         plot, dpi = 300,
+         width = 8, height = 5, units = "in")
+}
+
+
+```
+
+
+# feature selection
+
+```{r individual linear regression}
+
+#### no transformation ####
+dat_dep <- featuresNet %>%
+  dplyr::select(permitCount) # countinuous outcome
+
+
+dat_ind <- featuresNet %>%
+  dplyr::select(-uniqueID, -permitCount, -year, -geometry, -permitDummy_numeric, -permitDummy)
+
+
+dat_dep2 <- featuresNet %>%
+  dplyr::select(permitDummy_numeric) # binary outcome
+
+
+reg <- as.data.frame(get_bivReg(dat_dep, dat_ind))
+# write.csv(reg, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg.csv")
+
+
+reg2 <- as.data.frame(get_bivReg(dat_dep2, dat_ind))
+# write.csv(reg2, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/reg_dummy.csv")
+
+
+```
+
+```{r correlation}
+
+
+var_corr <- dat_ind 
+
+#rcorr(as.matrix(var_corr[]), type = c("pearson"))
+
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across numeric variables")
+
+
+
+# for presentation
+var_corr_some <- var_corr %>%
+  select(salesCount, indOwnerDelta, 
+          meanSqftPrice,
+          medRent, perc_medRentChange2yr,
+          meanDebt,
+          totalVacantLots,
+          pop, perc_popChange2yr,
+          perc_white, perc_whiteChange2yr, 
+          medInc, perc_medIncChange2yr,
+          licenses, parksNN, schoolsNN, transitNN, crime)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_some), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_some),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across important numeric variables")
+
+
+
+# group 1 - sales count and med rent
+var_corr_sales <- var_corr %>%
+  select(salesCount, 
+          medRent, perc_medRentChange2yr)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_sales), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_sales),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of development prospects")
+
+
+
+# group 2 - demographics
+var_corr_demo <- var_corr %>%
+  select(pop, perc_popChange2yr,
+          perc_white, perc_whiteChange2yr, 
+          medInc, perc_medIncChange2yr)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_demo), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_demo),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of demographics")
+
+
+
+# group 3 - amenities
+var_corr_amen <- var_corr %>%
+  select(licenses, licensesNN, parks, parksNN, schools, schoolsNN, transit, transitNN, crime, crimeNN)
+ggcorrplot(outline.col = "white", type = "lower",
+  round(cor(var_corr_amen), 1), 
+  lab = T,
+  p.mat = cor_pmat(var_corr_amen),
+  colors = c(palette[2], "white", palette[6]),
+  insig = "blank") +  
+  labs(title = "Correlation across variables of amenities")
+
+
+
+```
+
+
+
+# Model fitting
+## create testing and training set
+
+
+```{r train test split}
+
+# hold out on 2019
+featuresNet19 <-
+  featuresNet %>%
+  filter(year == 2019)
+
+# train and test on 2016, 2017, 2018
+featuresNet161718 <-
+  featuresNet %>%
+  filter(year %in% c(2016, 2017, 2018))
+
+# set random seed to replicate results
+set.seed(326)
+
+# partition the data
+trainIndex <-
+  createDataPartition(
+    featuresNet161718$permitCount,
+    p = .75,
+    list = FALSE,
+    times = 1)
+
+
+train <-
+  featuresNet161718[trainIndex,] 
+
+test <-
+  featuresNet161718[-trainIndex,] # test data within training data for tuning
+
+
+```
+
+
+## modeling - binomial
+```{r bim0}
+
+# model0: select the vars with highest R sq every theoretical group
+biM0 <-
+    glm(as.factor(permitDummy) ~ 
+          year +
+          salesCount +
+          indOwnerDelta + 
+          meanSqftPrice + 
+          medRent +
+          perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop +
+          perc_popChange2yr +
+          perc_white +
+          perc_whiteChange2yr + 
+          medInc + 
+          perc_medIncChange2yr +
+          licenses +
+          parksNN +
+          schoolsNN +
+          transitNN +
+          crime,
+        family="binomial"(link = "logit"), 
+      data = train)
+
+summary(biM0)
+
+
+biM0_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(biM0, test, type="response"))
+
+
+# calculate AUC od biM0
+biM0_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(biM0_out$probs))
+biM0_AUC # 0.8559
+
+# calculate threshold and confusion matrix to evaluate model
+pred <- prediction(biM0_out[is.na(biM0_out$probs)==FALSE,]$probs, biM0_out[is.na(biM0_out$probs)==FALSE,]$outcome)
+
+f.perf<-performance(pred,"f")
+
+plot(f.perf)
+
+
+F.score <- c(f.perf@y.values[[1]])
+
+cutoff <- c(f.perf@x.values[[1]])
+
+F.score_table <- data.frame(cbind(F.score, cutoff))
+
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM0_out <- 
+  biM0_out %>%
+  mutate(predOutcome = as.factor(ifelse(biM0_out$probs > fscore$cutoff, 1, 0)))
+
+
+caret::confusionMatrix(biM0_out$predOutcome, biM0_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8388, sens: 0.6683, spec: 0.876
+
+
+```
+
+
+# Bivarite model 1A
+
+```{r bivariate model 1a}
+
+# model1a: eliminate correlated vars, keeping salesCount
+biM1a <-
+    glm(permitDummy ~ 
+          year +
+          salesCount +
+          indOwnerDelta + 
+          meanSqftPrice + 
+          perc_medRentChange2yr +
+          #medRent + 
+          meanDebt +
+          totalVacantLots +
+          perc_popChange2yr +
+          #pop + 
+          perc_whiteChange2yr +
+          #perc_white + 
+          medInc +
+          perc_medIncChange2yr +
+          licenses,
+        # + parksNN
+        # + schoolsNN
+        # + transitNN
+        # + crime
+        family = "binomial"(link = "logit"), 
+        data = train)
+
+summary(biM1a)
+
+
+biM1a_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(biM1a, train, type="response"))
+
+
+#calculate AUC
+biM1a_AUC <-
+  pROC::auc(as.factor(test$permitDummy), as.numeric(biM1a_out$probs))
+biM1a_AUC # 0.8508
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM1a_out[is.na(biM1a_out$probs) == F,]$probs, biM1a_out[is.na(biM1a_out$probs) == F,]$outcome)
+
+f.perf <- performance(pred, "f")
+plot(f.perf)
+
+F.score <- c(f.perf@y.values[[1]])
+cutoff <- c(f.perf@x.values[[1]])
+F.score_table <- data.frame(cbind(F.score, cutoff))
+F.score_table[which.max(F.score_table$F.score),]
+
+biM1a_out <- 
+  biM1a_out %>%
+  mutate(predOutcome = as.factor(ifelse(biM1a_out$probs > 0.25, 1, 0)))
+
+caret::confusionMatrix(biM1a_out$predOutcome, biM1a_out$outcome, 
+                       positive = "1")
+# accuracy: 0.8504, sens: 0.60, spec: 0.90
+```
+
+
+# Bivariate model 1B
+
+```{r bivariate model 1b}
+
+# model1b: eliminate correlated vars, keeping medRent
+biM1b <-
+    glm(permitDummy ~ 
+          year +
+          indOwnerDelta + #salesCount + 
+          meanSqftPrice + 
+          perc_medRentChange2yr + medRent + 
+          meanDebt +
+          totalVacantLots +
+          perc_popChange2yr + #pop + 
+          perc_whiteChange2yr + #perc_white + 
+          medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime, 
+        family="binomial"(link="logit"), 
+      data = train)
+
+summary(biM1b)
+
+biM1b_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(biM1b, test, type="response"))
+
+#calculate AUC
+biM1b_AUC <-
+  pROC::auc(as.factor(test$permitDummy),
+            as.numeric(biM1b_out$probs))
+
+biM1b_AUC # 0.8561
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM1b_out[is.na(biM1b_out$probs)==FALSE,]$probs, biM1b_out[is.na(biM1b_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM1b_out <- 
+  biM1b_out %>%
+  mutate(predOutcome = as.factor(ifelse(biM1b_out$probs > fscore$cutoff , 1, 0)))
+
+
+caret::confusionMatrix(biM1b_out$predOutcome,
+                       biM1b_out$outcome, 
+                       positive = "1")
+
+# accuracy: 0.8439, sens: 0.638, spec: 0.888
+
+
+```
+
+
+
+# Bivariate Model 2
+
+```{r bivariate model 2}
+
+# model2: eliminate correlated vars, keeping medRent, eliminate insignificant vars
+
+biM2 <-
+    glm(permitDummy ~ 
+          #year +
+          indOwnerDelta +
+          #salesCount + 
+          meanSqftPrice + 
+          medRent +
+          #perc_medRentChange2yr + 
+          #meanDebt +
+          totalVacantLots +
+          perc_popChange2yr +
+          #pop + 
+          perc_whiteChange2yr +
+          #perc_white + 
+          medInc +
+          perc_medIncChange2yr +
+          licenses, # +
+          # parksNN +
+          # schoolsNN + 
+          # transitNN +
+          # crime, 
+        family = "binomial"(link = "logit"), 
+      data = train)
+
+summary(biM2)
+
+
+
+biM2_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(biM2, test, type="response"))
+
+
+# calculate AUC
+biM2_AUC <- pROC::auc(as.factor(test$permitDummy),
+                      as.numeric(biM2_out$probs))
+biM2_AUC # 0.8558
+
+#calculate threshold and confusion matrix
+pred <- prediction(biM2_out[is.na(biM2_out$probs)==FALSE,]$probs, biM2_out[is.na(biM2_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+biM2_out <- 
+  biM2_out %>%
+  mutate(predOutcome = as.factor(ifelse(biM2_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(biM2_out$predOutcome,
+                       biM2_out$outcome, 
+                       positive = "1")
+
+# accuracy: 0.8457, sens: 0.6335, spec: 0.8922
+
+```
+
+
+
+## Modeling
+
+# Random Forest Model 00
+
+```{r}
+rfM0 <- 
+  randomForest(
+    permitDummy_numeric ~
+      year +
+      salesCount +
+      indOwnerDelta + 
+      meanSqftPrice + 
+      medRent +
+      perc_medRentChange2yr +
+      meanDebt +
+      totalVacantLots +
+      pop +
+      perc_popChange2yr +
+      perc_white +
+      perc_whiteChange2yr + 
+      medInc +
+      perc_medIncChange2yr +
+      licenses +
+      parksNN +
+      schoolsNN +
+      transitNN +
+      crime,
+    data = train)
+
+
+importance(rfM0)
+
+# save model's outcome as a Dataframe
+rfM0_out <-
+  data.frame(outcome = as.factor(test$permitDummy),
+             probs = predict(rfM0, test, type="response"))
+
+
+#calculate AUC
+rfM0_AUC <-
+  pROC::auc(as.factor(test$permitDummy),
+            as.numeric(rfM0_out$probs))
+
+rfM0_AUC #0.8793
+
+
+#calculate threshold and confusion matrix
+pred <-
+  prediction(rfM0_out[is.na(rfM0_out$probs) == F, ]$probs, rfM0_out[is.na(rfM0_out$probs) == F,]$outcome)
+
+f.perf <
+  performance(pred,"f")
+
+plot(f.perf)
+
+
+F.score <-
+  c(f.perf@y.values[[1]])
+
+cutoff <-
+  c(f.perf@x.values[[1]])
+
+F.score_table <-
+  data.frame(cbind(F.score, cutoff))
+
+fscore <-
+  F.score_table[which.max(F.score_table$F.score),]
+
+rfM0_out <- 
+  rfM0_out %>%
+  mutate(predOutcome = as.factor(ifelse(rfM0_out$probs > fscore$cutoff , 1, 0)))
+
+caret::confusionMatrix(rfM0_out$predOutcome,
+                       rfM0_out$outcome, 
+                       positive = "1")
+
+# accuracy: 0.8467, sens: 0.6754, spec: 0.8841
+
+```
+
+
+
+```{r}
+
+# use caret to tune - took too long, save for later
+# control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# set.seed(0326)
+# tunegrid <- expand.grid(.mtry=c(3:5))
+# metric <- "Accuracy"
+# rf_gridsearch <- train(as.factor(permitDummy) ~
+#           year +
+#           salesCount + indOwnerDelta + 
+#           meanSqftPrice + 
+#           medRent + perc_medRentChange2yr +
+#           meanDebt +
+#           totalVacantLots +
+#           pop + perc_popChange2yr +
+#           perc_white + perc_whiteChange2yr + 
+#           medInc + + perc_medIncChange2yr +
+#           licenses + parksNN + schoolsNN + transitNN + crime,
+#                        data=train, method="rf", metric=metric, tuneGrid=tunegrid, trControl=control)
+# print(rf_gridsearch)
+# plot(rf_gridsearch)
+
+```
+
+
+# Random Forest model 01
+
+```{r}
+
+# Random Forest Model 01
+rfM1 <- 
+  randomForest(
+    permitDummy_numeric ~ 
+      #year +
+      #indOwnerDelta +
+      #salesCount + 
+      meanSqftPrice + 
+      perc_medRentChange2yr +
+      medRent + 
+      #meanDebt +
+      totalVacantLots +
+      perc_popChange2yr +
+      #pop + 
+      perc_whiteChange2yr +
+      #perc_white + 
+      medInc + perc_medIncChange2yr +
+          licenses, # + parksNN + schoolsNN + transitNN + crime,
+      data = train)
+
+# importance(rfM1)
+rfM1_out <- data.frame(outcome = as.factor(test$permitDummy),
+  probs = predict(rfM1, test, type="response"))
+
+#calculate AUC
+rfM1_AUC <- pROC::auc(as.factor(test$permitDummy), as.numeric(rfM1_out$probs))
+rfM1_AUC #0.8601
+
+#calculate threshold and confusion matrix
+pred <- prediction(rfM1_out[is.na(rfM1_out$probs)==FALSE,]$probs, rfM1_out[is.na(rfM1_out$probs)==FALSE,]$outcome)
+f.perf<-performance(pred,"f")
+plot(f.perf)
+
+F.score <-c(f.perf@y.values[[1]])
+cutoff<-c(f.perf@x.values[[1]])
+F.score_table<-data.frame(cbind(F.score, cutoff))
+fscore <- F.score_table[which.max(F.score_table$F.score),]
+
+rfM1_out <-
+  rfM1_out %>%
+  mutate(predOutcome  = as.factor(ifelse(rfM1_out$probs > fscore$cutoff, 1, 0)))
+
+caret::confusionMatrix(rfM1_out$predOutcome, rfM1_out$outcome, 
+                       positive = "1")
+
+# accuracy: 0.8371, sens: 0.6754, spec: 0.8723
+
+```
+
+
+
+
+
+```{r sample tree}
+
+x <- ctree(rfM1, test)
+plot(x, type="simple")
+# plot(x)
+feature_rfM0 <- importance(rfM0)  
+feature_rfM0 <- data.frame(Feature = row.names(feature_rfM0), Importance = feature_rfM0[, 1])
+
+plot_feature_bar <- 
+  ggplot(feature_rfM0, aes(x= reorder(Feature, Importance) , y = Importance) ) +
+  geom_bar(stat = "identity", fill = palette[6]) +
+  coord_flip() +
+  theme_light(base_size = 12) +
+  xlab("") + 
+  ggtitle("Important Features in Random Forest\n") +
+  theme(plot.title = element_text(size=12))
+  
+
+plot_feature_bar
+
+
+```
+
+
+
+
+# result (on 2019 set)
+
+```{r map of continuous score}
+tab_preds <-         
+  featuresNet19 %>%
+    st_sf() %>%
+    mutate(probs = predict(rfM0, featuresNet19, type="response"),
+           predOutcome = as.factor(ifelse(probs >= 0.3944, 1, 0)))
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=probs), color=NA, inherit.aes = FALSE) +
+  scale_fill_viridis(option = "mako",
+                         name = "development risk",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = 1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+```
+
+
+
+
+```{r map of 1 or 0}
+
+colors <- c('#414081',
+            '#D0EFD8')
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=predOutcome), color=NA, inherit.aes = FALSE) +
+          scale_fill_manual(values = c(colors[1], colors[2]), 
+                            labels=c("No", "Yes"), 
+                            name="predicted development") +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+ggplot() +
+  geom_sf(data=tab_preds, aes(fill=as.factor(permitDummy)), color=NA, inherit.aes = FALSE) +
+          scale_fill_manual(values = c(colors[1], colors[2]), 
+                            labels=c("No", "Yes"), 
+                            name="observed development") +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+##- archived for side to side comparison plots -##
+# predsForMap <-         
+#   featuresNet19 %>%
+#     st_sf() %>%
+#     mutate(probs = predict(rfM0, featuresNet19, type="response") ,
+#             Threshold_39.4_Pct = as.factor(ifelse(probs >= 0.3944, 1, 0))) %>%
+#     dplyr::select(permitDummy, Threshold_39.4_Pct) %>%
+#     gather(Variable,Value, -geometry) %>%
+#     st_cast("POLYGON")
+
+# xyC <- function(aPolygonSF) {
+#   as.data.frame(
+#     cbind(x=st_coordinates(st_centroid(aPolygonSF))[,1],
+#           y=st_coordinates(st_centroid(aPolygonSF))[,2]))
+# } 
+# 
+# ggplot() +
+#   geom_point(data=predsForMap, aes(x=xyC(predsForMap)[,1], y=xyC(predsForMap)[,2], colour=Value)) +
+#   facet_wrap(~Variable) +
+#   #scale_colour_manual(values = palette2b, labels=c("No Change","New Development"),
+#   #                    name="") +
+#   labs(title="Development predictions - yes or no development") + 
+#   theme(legend.position="bottom") +
+#   mapTheme()
+```
+
+
+
+
+
+
+
+# Validation
+
+```{r final confusion matrix}
+
+cm <- tab_preds %>%
+  conf_mat(permitDummy, predOutcome)
+
+autoplot(cm, type = "heatmap") +
+  scale_fill_viridis(option="mako", 
+                     begin = 0.3, end = 0.5,
+                     alpha=0.4)
+
+```
+
+
+
+
+
+
+```{r binary prob density}
+
+##- probabilities density -##
+ggplot(tab_preds, aes(probs)) +
+  geom_density(aes(fill=permitDummy), alpha=0.5) +
+  #scale_fill_manual(values = palette2,
+  #                  labels=c("No Change","New Development")) +
+  labs(title = "Density plot of test set predicted probabilities",
+       x="Predicted Probabilities",y="Density") +
+  plotTheme()
+```
+```{r LOGO-cv accuracy}
+phlcrs <- 'EPSG:32129'
+phil_neigh <- read_sf("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/MUSA801_PLA/data/Neighborhoods_Philadelphia/Neighborhoods_Philadelphia.shp") %>%
+  st_transform(st_crs(phlcrs))
+
+featuresNet_neigh <-
+  st_centroid(featuresNet19 %>% st_sf()) %>%
+  st_join(dplyr::select(phil_neigh, NAME)) %>%
+  na.omit()
+
+finalIndVars <- c("year", "salesCount", "indOwnerDelta", 
+          "meanSqftPrice", 
+          "medRent", "perc_medRentChange2yr",
+          "meanDebt",
+          "totalVacantLots",
+          "pop", "perc_popChange2yr",
+          "perc_white", "perc_whiteChange2yr", 
+          "medInc", 'perc_medIncChange2yr',
+          "licenses", "parksNN", "schoolsNN", "transitNN", "crime")
+
+# specificity
+
+crossValidate <- function(dataset, id, dependentVariable, indVariables) {
+
+  allPredictions <- data.frame()
+  cvID_list <- unique(dataset[[id]])
+  
+  for (i in cvID_list) {
+  
+    thisFold <- i
+    cat("This hold out fold is", thisFold, "\n")
+  
+    fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+    fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
+                  dplyr::select(id, geometry, indVariables, dependentVariable)
+    
+    model <- randomForest(permitDummy_numeric ~ 
+          year +
+          salesCount + indOwnerDelta + 
+          meanSqftPrice + 
+          medRent + perc_medRentChange2yr +
+          meanDebt +
+          totalVacantLots +
+          pop + perc_popChange2yr +
+          perc_white + perc_whiteChange2yr + 
+          medInc + + perc_medIncChange2yr +
+          licenses + parksNN + schoolsNN + transitNN + crime, 
+      data = fold.train)
+    
+    thisPrediction <- 
+      mutate(fold.test, Prediction = ifelse(predict(model, fold.test, type = "response")>0.3944, 1, 0))
+    
+      
+    allPredictions <-
+      rbind(allPredictions, thisPrediction)
+      
+    }
+    return(allPredictions)
+}
+
+get_accuracy <- function(cm){
+    acc <- cm$overall[['Accuracy']]
+    return(acc)
+}
+
+spatialCV <- crossValidate(
+  dataset = featuresNet_neigh,
+  id = "NAME",
+  dependentVariable = "permitDummy_numeric",
+  indVariables = finalIndVars) %>%
+    dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
+allvalues <- unique(union(spatialCV$prediction, spatialCV$permitDummy_numeric))
+cv_result <- #accuracy
+  spatialCV %>%
+    dplyr::group_by(cvID) %>%
+    dplyr::summarize(accuracy = get_accuracy(caret::confusionMatrix(factor(Prediction, levels = allvalues), factor(permitDummy_numeric, levels = allvalues)))) %>%
+  ungroup()
+# saveRDS(cv_result, "C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
+spatialCV <- readRDS("C:/Users/m1861/Desktop/CPLN790_MUSAPracticum/Data_Box/local/cvByNeighborhood_accuracy.rds")
+phil_neigh_cv <- left_join(phil_neigh, cv_result, by=c("NAME"="cvID"))
+
+ggplot() +
+  geom_sf(data=phil_neigh_cv, aes(fill=accuracy)) +
+  scale_fill_viridis(option = "mako",
+                         name = "value",
+                         begin = 0.3,
+                          #trans = "log1p",
+                          direction = -1) +
+      mapTheme() +
+      theme(axis.text.x = element_blank(),
+            legend.position = c(0.85, 0.2),
+            panel.border = element_blank(),
+            panel.background = element_rect(fill = "#ffffff"),
+            panel.grid.major.x = element_blank(),
+            legend.title=element_text(size=12), 
+            legend.text=element_text(size=9))
+
+```
+
+
+
+
+
+
+```{r LOGO-cv predicted score}
+
+# not very meaningful - could just aggregate from original fishnet, no need CV
+# crossValidate_score <- function(dataset, id, dependentVariable, indVariables) {
+# 
+#   allPredictions <- data.frame()
+#   cvID_list <- unique(dataset[[id]])
+#   
+#   for (i in cvID_list) {
+#   
+#     thisFold <- i
+#     cat("This hold out fold is", thisFold, "\n")
+#   
+#     fold.train <- filter(dataset, dataset[[id]] != thisFold) %>% as.data.frame() %>% 
+#                   dplyr::select(id, geometry, indVariables, dependentVariable)
+#     fold.test  <- filter(dataset, dataset[[id]] == thisFold) %>% as.data.frame() %>% 
+#                   dplyr::select(id, geometry, indVariables, dependentVariable)
+#   
+#     model <- randomForest(permitDummy_numeric ~ 
+#           year +
+#           salesCount + indOwnerDelta + 
+#           meanSqftPrice + 
+#           medRent + perc_medRentChange2yr +
+#           meanDebt +
+#           totalVacantLots +
+#           pop + perc_popChange2yr +
+#           perc_white + perc_whiteChange2yr + 
+#           medInc + + perc_medIncChange2yr +
+#           licenses + parksNN + schoolsNN + transitNN + crime, 
+#       data = fold.train)
+#     
+#     thisPrediction <- 
+#       mutate(fold.test, Prediction = predict(model, fold.test, type = "response"))
+#     
+#       
+#     allPredictions <-
+#       rbind(allPredictions, thisPrediction)
+#       
+#     }
+#     return(allPredictions)
+# }
+# 
+# spatialCV_score <- crossValidate_score(
+#   dataset = featuresNet_neigh,
+#   id = "NAME",
+#   dependentVariable = "permitDummy_numeric",
+#   indVariables = finalIndVars) %>%
+#     dplyr::select(cvID = NAME, permitDummy_numeric, Prediction, geometry)
+# 
+# cv_result_avg <- 
+#   spatialCV_score %>%
+#     dplyr::group_by(cvID) %>% 
+#     dplyr::summarize(mean_score = mean(Prediction)) %>%
+#   ungroup()
+# 
+# phil_neigh_cv <- left_join(phil_neigh, cv_result_avg, by=c("NAME"="cvID"))
+# 
+# ggplot() +
+#   geom_sf(data=phil_neigh_cv, aes(fill=mean_score)) +
+#   scale_fill_viridis(option = "mako",
+#                          name = "value",
+#                          begin = 0.3,
+#                           #trans = "log1p",
+#                           direction = -1) +
+#       mapTheme() +
+#       theme(axis.text.x = element_blank(),
+#             legend.position = c(0.85, 0.2),
+#             panel.border = element_blank(),
+#             panel.background = element_rect(fill = "#ffffff"),
+#             panel.grid.major.x = element_blank(),
+#             legend.title=element_text(size=12), 
+#             legend.text=element_text(size=9))
+```
+
+
+
+
+```{r goodness of fit}
+
+##- archived, not working -##
+# ctrl <- trainControl(method = "cv", number = 10, classProbs=TRUE, summaryFunction=twoClassSummary)
+# train$permitDummy <- factor(train$permitDummy)
+# cvFit <- train(permitDummy ~ 
+#           #year +
+#           indOwnerDelta + #salesCount + 
+#           meanSqftPrice + 
+#           medRent + #perc_medRentChange2yr + 
+#           #meanDebt +
+#           totalVacantLots +
+#           perc_popChange2yr + #pop + 
+#           perc_whiteChange2yr + #perc_white + 
+#           medInc + perc_medIncChange2yr +
+#           licenses, # + parksNN + schoolsNN + transitNN + crime, 
+#           data = featuresNet19 %>% mutate(permitDummy = ifelse(permitDummy=="yes","c1.yes","c2.no")), 
+#           method="glm", family="binomial"(link="logit"),
+#           metric="ROC", trControl = ctrl)
+
+# Error in apply(testOutput[, lev], 1, function(x) x/sum(x)) : dim(X) must have a positive length
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
