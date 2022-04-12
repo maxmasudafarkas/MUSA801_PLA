@@ -471,159 +471,6 @@ saveRDS(sheriffProps, file = "../data/local/sheriffProps.rds")
 
 
 
-```{r web app 01}
-
-majMinPolygon <- demographics %>%
-  filter(nhMajMin == 0) %>%
-  dplyr::select(geometry) %>%
-  st_union() %>%
-  st_sf()
-
-majMinJSON <- 
-  majMinPolygon %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) 
-
-write(majMinJSON, "./json/majMin.json")
-
-
-incomePolygon <- demographics %>%
-  filter(nhIncome == 0) %>%
-  dplyr::select(geometry) %>%
-  st_union() %>%
-  st_sf()
-
-incomeJSON <- 
-  incomePolygon %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.)
-
-write(incomeJSON, "./json/income.json")
-
-
-# Kensington Example
-
-kensingtonTracts <- 
-  c("42101014400",
-    "42101015600",
-    "42101015700",
-    "42101016200")
-
-
-kensington <- 
-  phltracts %>%
-  filter(GEOID %in% kensingtonTracts) %>%
-  st_union() %>%
-  st_sf()
-
-
-kensington %>%
-st_transform('EPSG:4326') %>%
-    st_bbox(kensington)
-
-
-kensingtonJSON <- 
-  kensington %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.)
-
-write(kensingtonJSON, "./json/kensington.json")
-
-
-# Get vacant lots in South Kensington
-kenVacantLand <-
-  vacantLandProps %>%
-  dplyr::select(geometry) %>%
-  st_filter(., kensington)
-
-kenVacantLandJSON <- 
-  kenVacantLand %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) %>%
-  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
-  gsub("\\}", ',', .)
-  
-write(kenVacantLandJSON, "./json/kenVacantLand.json")
-
-
-
-kenVacantProps <-
-  vacantLandProps %>%
-  dplyr::select(geometry, ADDRESS) %>%
-  filter(ADDRESS %in% c('1601 N LAWRENCE ST',
-                        '1603 N LAWRENCE ST',
-                        '1605 N LAWRENCE ST'
-                        ))
-
-kenVacantPropsJSON <- 
-  kenVacantProps %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) %>%
-  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
-  gsub("\\}", ',', .)
-  
-write(kenVacantPropsJSON, "./json/kenVacantProps.json")
-
-
-
-# Get delinquent lots in South Kensington
-kenDelinquent <-
-  delinquenciesVacantProps %>%
-  filter(delinquentType != 0) %>%
-  dplyr::select(geometry) %>%
-  st_filter(., kensington)
-
-kenDelinquentJSON <- 
-  kenDelinquent %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) %>%
-  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
-  gsub("\\}", ',', .)
-  
-write(kenDelinquentJSON, "./json/kenDelinquent.json")
-
-
-# Get vacant lots in South Kensington
-kenUsBank <-
-  delinquenciesVacantProps %>%
-  filter(delinquentType == 2) %>%
-  dplyr::select(geometry) #%>%
-  #st_filter(., kensington)
-
-kenUsBankJSON <- 
-  kenUsBank %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) %>%
-  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
-  gsub("\\}", ',', .)
-  
-write(kenUsBankJSON, "./json/kenUsBankAll.json")
-
-
-m(kensington)
-m(kenVacantLand)
-
-
-# Get vacant lots in South Kensington
-kenSheriff <-
-  vacantDelinquenciesProps %>%
-  # filter(allSheriffSales == 1) %>%
-  dplyr::select(street_address, geometry) %>%
-  st_filter(., kensington)
-
-kenSheriffJSON <- 
-  kenSheriff %>%
-  st_transform('EPSG:4326') %>%
-  sf_geojson(.) %>%
-  gsub("\\{\"type\":\"Point\",\"coordinates\":", '', .) %>%
-  gsub("\\}", ',', .)
-  
-write(kenSheriffJSON, "./json/kenSheriff.json")
-
-```
-
-
-
 
 
 ## Demand-side data
@@ -637,6 +484,9 @@ write(kenSheriffJSON, "./json/kenSheriff.json")
 
 # Load PERMITS data from OpenDataPhilly's Carto API
 # permits <- read_csv('https://phl.carto.com/api/v2/sql?q=SELECT+*,+ST_Y(the_geom)+AS+lat,+ST_X(the_geom)+AS+lng+FROM+permits&filename=permits&format=csv&skipfields=cartodb_id')
+
+# save locally
+# saveRDS(permits, file = "../data/local/permits.rds")
 
 # OR local load
 permits <- readRDS('../data/local/permits.rds')
@@ -655,7 +505,7 @@ permitsVars <-
     'applicanttype',                 # MAYBE
     #'contractor[...]',               # UNNECESSARY
     'opa_account_num',               # KEEP for JOIN****
-    #'address',                       # KEEP for JOIN check
+    'address',                       # KEEP for JOIN check
     'lng','lat'
     )
 
@@ -747,6 +597,9 @@ permitsZoningData <- permitsData %>%
 permitsProps <- propertiesData %>%
   inner_join(st_drop_geometry(permitsZoningData),  by = c('parcel_number'='opa_account_num'))
 
+
+# SAVE locally
+saveRDS(permitsProps, file = "../data/local/permitsProps.rds")
 
 
 ```
@@ -884,26 +737,30 @@ saveRDS(permitsNetYears, "../data/local/permitNetYears.Rds")
 
 
 # classify zoning permits by five-year periods
-permitsLustrums <- 
-  permitsNetYears %>%
-  mutate(lustrum = case_when(
-           year %in% seq(2007, 2011) ~ '2007-2011',
-           year %in% seq(2012, 2016) ~ '2012-2016',
-           year %in% seq(2017, 2021) ~ '2017-2021'
-         )) %>%
-  group_by(lustrum, uniqueID) %>%
-  summarize(permitCount = sum(permitCount))
 
+if (SWITCH == T) {
+  permitsLustrums <- 
+    permitsNetYears %>%
+    mutate(lustrum = case_when(
+             year %in% seq(2007, 2011) ~ '2007-2011',
+             year %in% seq(2012, 2016) ~ '2012-2016',
+             year %in% seq(2017, 2021) ~ '2017-2021'
+           )) %>%
+    group_by(lustrum, uniqueID) %>%
+    summarize(permitCount = sum(permitCount))
+  } else {
+    permitsLustrums <- readRDS("../data/local/permitLustrums.Rds")
+}
 
 # SAVE locally
-saveRDS(permitsNetYears, "../data/local/permitNetYears.Rds")
+saveRDS(permitsLustrums, "../data/local/permitLustrums.Rds")
 
 
 ```
 
 
 
-## Independent Variable
+## Independent Variables
 
 
 ### 1. Development Prospects
@@ -1109,167 +966,175 @@ saveRDS(sheriffSalesNetYears, file = "../data/local/sheriffSalesNetYears.rds")
 
 ```{r features demographic}
 
-# census variables to request to the API
-censusVars <- c("B01001_001", "B01001A_001", "B19013_001", "B25064_001")
 
-# for loop to get demographic data for years and change in selected variables
-for(year in seq(initYr, endYr)) {
-  yr <- as.character(year - 2000)
-  yr1 <- as.character(year - 2000 - 1)
-  yr2 <- as.character(year - 2000 - 2)
+if (SWITCH == T) {
   
-  # get this year data
-  demoData <-
-    get_acs(
-      geography = "tract",
-      variables = censusVars, 
-      year = year, 
-      state = "PA", 
-      geometry = T, 
-      county = c("Philadelphia"),
-      output = "wide") %>%
-    mutate(!!paste0('percWhite', yr) := B01001A_001E/B01001_001E) %>%
-    rename(!!paste0('pop', yr) := B01001_001E,
-           !!paste0('medInc', yr) := B19013_001E,
-           !!paste0('medRent', yr) := B25064_001E) %>%
-    dplyr::select(-ends_with('M'), -NAME, -B01001A_001E) %>%
-    st_drop_geometry()
+  # census variables to request to the API
+  censusVars <- c("B01001_001", "B01001A_001", "B19013_001", "B25064_001")
   
-
-  if (year > initYr) {
+  # for loop to get demographic data for years and change in selected variables
+  for(year in seq(initYr, endYr)) {
+    yr <- as.character(year - 2000)
+    yr1 <- as.character(year - 2000 - 1)
+    yr2 <- as.character(year - 2000 - 2)
+    
+    # get this year data
     demoData <-
-      full_join(lastYearData, demoData, by = 'GEOID')
+      get_acs(
+        geography = "tract",
+        variables = censusVars, 
+        year = year, 
+        state = "PA", 
+        geometry = T, 
+        county = c("Philadelphia"),
+        output = "wide") %>%
+      mutate(!!paste0('percWhite', yr) := B01001A_001E/B01001_001E) %>%
+      rename(!!paste0('pop', yr) := B01001_001E,
+             !!paste0('medInc', yr) := B19013_001E,
+             !!paste0('medRent', yr) := B25064_001E) %>%
+      dplyr::select(-ends_with('M'), -NAME, -B01001A_001E) %>%
+      st_drop_geometry()
     
-    if (year >= startYr) {
-      
-      medIncYr <- demoData[paste0('medInc', yr)]
-      medIncYr1 <- demoData[paste0('medInc', yr1)]
-      medIncYr2 <- demoData[paste0('medInc', yr2)]    
-      
-      medRentYr <- demoData[paste0('medRent', yr)]
-      medRentYr1 <- demoData[paste0('medRent', yr1)]
-      medRentYr2 <- demoData[paste0('medRent', yr2)]
-
-      demoData <-
-        demoData %>%
-        mutate(popChange1 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr1)])/demoData[paste0('pop', yr1)])[,1],
-               popChange2 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr2)])/demoData[paste0('pop', yr2)])[,1]) %>%
-        rename(!!paste0('popChange1yr', yr, yr1) := popChange1,
-               !!paste0('popChange2yr', yr, yr2) := popChange2) %>%
-        mutate(percWhiteChange1 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr1)])[,1],
-               percWhiteChange2 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr2)])[,1]) %>%
-        rename(!!paste0('percWhiteChange1yr', yr, yr1) := percWhiteChange1,
-               !!paste0('percWhiteChange2yr', yr, yr2) := percWhiteChange2) %>%
-        mutate(medIncChange1 = ((medIncYr - medIncYr1) / medIncYr1)[,1],
-               medIncChange2 = ((medIncYr - medIncYr2) / medIncYr2)[,1]) %>%
-        rename(!!paste0('medIncChange1yr', yr, yr1) := medIncChange1,
-               !!paste0('medIncChange2yr', yr, yr2) := medIncChange2) %>%
-        mutate(medRentChange1 = ((medRentYr - medRentYr1) / medRentYr1)[,1],
-               medRentChange2 = ((medRentYr - medRentYr2) / medRentYr2)[,1]) %>%
-        rename(!!paste0('medRentChange1yr', yr, yr1) := medRentChange1,
-               !!paste0('medRentChange2yr', yr, yr2) := medRentChange2)
-      }
-    }
-
-  lastYearData <-
-    demoData %>%
-    replace(is.na(.), 0)
   
-}
-
-# variables from reference lag years to take out
-initYrVars <- c()
-
-for (var in c('pop', 'medInc' , 'medRent', 'percWhite')) {
-  initYrVars <- c(initYrVars,
-                  paste0(var, substr(as.character(initYr), 3, 4)),
-                  paste0(var, substr(as.character(initYr+1), 3, 4)))
-}
-
-
-# join to census tracts
-demoJoined <- 
-  demoData %>%
-  left_join(phltracts, by = "GEOID") %>%
-  dplyr::select(-all_of(initYrVars)) %>%
-  st_sf()
-
-# get all variables names
-demoVars <- colnames(demoJoined)
-
-
-# This function to iterate over year variable, interpolates them to the census
-# tract geometry to a fishnet cell and JOIN them by year and fishnet cell
-createFeature <-
-  function(input, varList, fishnet) {
-    output <- data.frame(matrix(ncol = 3, nrow = 0))
-    
-    name <- sub("[0-9]{2,4}$", "", varList[1])
-    
-    for (var in varList) {
-      year = as.numeric(paste0(20, str_sub(var, -2, -1)))
-    
-      data <-
-        st_interpolate_aw(input[var], fishnet, extensive = T) %>%
-        as.data.frame(.) %>%
-        left_join(fishnet, ., by = "geometry") %>%
-        rename(!!name := var) %>%
-        mutate(year = year) %>%
-        st_drop_geometry() %>%
-        select(year, uniqueID, name)
+    if (year > initYr) {
+      demoData <-
+        full_join(lastYearData, demoData, by = 'GEOID')
       
-      output <- rbind(output, data)
-      
+      if (year >= startYr) {
+        
+        medIncYr <- demoData[paste0('medInc', yr)]
+        medIncYr1 <- demoData[paste0('medInc', yr1)]
+        medIncYr2 <- demoData[paste0('medInc', yr2)]    
+        
+        medRentYr <- demoData[paste0('medRent', yr)]
+        medRentYr1 <- demoData[paste0('medRent', yr1)]
+        medRentYr2 <- demoData[paste0('medRent', yr2)]
+  
+        demoData <-
+          demoData %>%
+          mutate(popChange1 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr1)])/demoData[paste0('pop', yr1)])[,1],
+                 popChange2 = ((demoData[paste0('pop', yr)] - demoData[paste0('pop', yr2)])/demoData[paste0('pop', yr2)])[,1]) %>%
+          rename(!!paste0('popChange1yr', yr, yr1) := popChange1,
+                 !!paste0('popChange2yr', yr, yr2) := popChange2) %>%
+          mutate(percWhiteChange1 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr1)])[,1],
+                 percWhiteChange2 = (demoData[paste0('percWhite', yr)] - demoData[paste0('percWhite', yr2)])[,1]) %>%
+          rename(!!paste0('percWhiteChange1yr', yr, yr1) := percWhiteChange1,
+                 !!paste0('percWhiteChange2yr', yr, yr2) := percWhiteChange2) %>%
+          mutate(medIncChange1 = ((medIncYr - medIncYr1) / medIncYr1)[,1],
+                 medIncChange2 = ((medIncYr - medIncYr2) / medIncYr2)[,1]) %>%
+          rename(!!paste0('medIncChange1yr', yr, yr1) := medIncChange1,
+                 !!paste0('medIncChange2yr', yr, yr2) := medIncChange2) %>%
+          mutate(medRentChange1 = ((medRentYr - medRentYr1) / medRentYr1)[,1],
+                 medRentChange2 = ((medRentYr - medRentYr2) / medRentYr2)[,1]) %>%
+          rename(!!paste0('medRentChange1yr', yr, yr1) := medRentChange1,
+                 !!paste0('medRentChange2yr', yr, yr2) := medRentChange2)
+        }
       }
-    return(output)
-    }
-
-# population variables
-varsPop <- as.vector(demoVars[grep('pop[0-9]', demoVars)])
-varsPopChange1yr <- as.vector(demoVars[grep('popChange1yr', demoVars)])
-varsPopChange2yr <- as.vector(demoVars[grep('popChange2yr', demoVars)])
-
-# white variables
-varsWhite <- as.vector(demoVars[grep('percWhite[0-9]', demoVars)])
-varsWhiteChange1yr <- as.vector(demoVars[grep('percWhiteChange1yr', demoVars)])
-varsWhiteChange2yr <- as.vector(demoVars[grep('percWhiteChange2yr', demoVars)])
-
-# Median income variables
-varsMedInc <- as.vector(demoVars[grep('medInc[0-9]', demoVars)])
-varsMedIncChange1yr <- as.vector(demoVars[grep('medIncChange1yr', demoVars)])
-varsMedIncChange2yr <- as.vector(demoVars[grep('medIncChange2yr', demoVars)])
-
-# median Rent variables
-varsMedRent <- as.vector(demoVars[grep('medRent[0-9]', demoVars)])
-varsMedRentChange1yr <- as.vector(demoVars[grep('medRentChange1yr', demoVars)])
-varsMedRentChange2yr <- as.vector(demoVars[grep('medRentChange2yr', demoVars)])
-
-
-
-# Panel with all demographic information
-demoNetYears <- 
-  yearPanel %>%
-  left_join(., createFeature(demoJoined, varsPop, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsPopChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsPopChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsWhite, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsWhiteChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsWhiteChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsMedInc, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsMedIncChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsMedIncChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
-  replace(is.na(.), 0) %>%
-  mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x))
-
-# Panel with all rent information
-rentNetYears <- 
-  yearPanel %>%
-  left_join(., createFeature(demoJoined, varsMedRent, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsMedRentChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
-  left_join(., createFeature(demoJoined, varsMedRentChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
-  replace(is.na(.), 0) %>%
-  mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x))
-
+  
+    lastYearData <-
+      demoData %>%
+      replace(is.na(.), 0)
+    
+  }
+  
+  # variables from reference lag years to take out
+  initYrVars <- c()
+  
+  for (var in c('pop', 'medInc' , 'medRent', 'percWhite')) {
+    initYrVars <- c(initYrVars,
+                    paste0(var, substr(as.character(initYr), 3, 4)),
+                    paste0(var, substr(as.character(initYr+1), 3, 4)))
+  }
+  
+  
+  # join to census tracts
+  demoJoined <- 
+    demoData %>%
+    left_join(phltracts, by = "GEOID") %>%
+    dplyr::select(-all_of(initYrVars)) %>%
+    st_sf()
+  
+  # get all variables names
+  demoVars <- colnames(demoJoined)
+  
+  
+  # This function to iterate over year variable, interpolates them to the census
+  # tract geometry to a fishnet cell and JOIN them by year and fishnet cell
+  createFeature <-
+    function(input, varList, fishnet) {
+      output <- data.frame(matrix(ncol = 3, nrow = 0))
+      
+      name <- sub("[0-9]{2,4}$", "", varList[1])
+      
+      for (var in varList) {
+        year = as.numeric(paste0(20, str_sub(var, -2, -1)))
+      
+        data <-
+          st_interpolate_aw(input[var], fishnet, extensive = T) %>%
+          as.data.frame(.) %>%
+          left_join(fishnet, ., by = "geometry") %>%
+          rename(!!name := var) %>%
+          mutate(year = year) %>%
+          st_drop_geometry() %>%
+          select(year, uniqueID, name)
+        
+        output <- rbind(output, data)
+        
+        }
+      return(output)
+      }
+  
+  # population variables
+  varsPop <- as.vector(demoVars[grep('pop[0-9]', demoVars)])
+  varsPopChange1yr <- as.vector(demoVars[grep('popChange1yr', demoVars)])
+  varsPopChange2yr <- as.vector(demoVars[grep('popChange2yr', demoVars)])
+  
+  # white variables
+  varsWhite <- as.vector(demoVars[grep('percWhite[0-9]', demoVars)])
+  varsWhiteChange1yr <- as.vector(demoVars[grep('percWhiteChange1yr', demoVars)])
+  varsWhiteChange2yr <- as.vector(demoVars[grep('percWhiteChange2yr', demoVars)])
+  
+  # Median income variables
+  varsMedInc <- as.vector(demoVars[grep('medInc[0-9]', demoVars)])
+  varsMedIncChange1yr <- as.vector(demoVars[grep('medIncChange1yr', demoVars)])
+  varsMedIncChange2yr <- as.vector(demoVars[grep('medIncChange2yr', demoVars)])
+  
+  # median Rent variables
+  varsMedRent <- as.vector(demoVars[grep('medRent[0-9]', demoVars)])
+  varsMedRentChange1yr <- as.vector(demoVars[grep('medRentChange1yr', demoVars)])
+  varsMedRentChange2yr <- as.vector(demoVars[grep('medRentChange2yr', demoVars)])
+  
+  
+  
+  # Panel with all demographic information
+  demoNetYears <- 
+    yearPanel %>%
+    left_join(., createFeature(demoJoined, varsPop, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsPopChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsPopChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsWhite, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsWhiteChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsWhiteChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsMedInc, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsMedIncChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsMedIncChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+    replace(is.na(.), 0) %>%
+    mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x))
+  
+  # Panel with all rent information
+  rentNetYears <- 
+    yearPanel %>%
+    left_join(., createFeature(demoJoined, varsMedRent, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsMedRentChange1yr, fishnet), by = c('year', 'uniqueID')) %>%
+    left_join(., createFeature(demoJoined, varsMedRentChange2yr, fishnet), by = c('year', 'uniqueID')) %>%
+    replace(is.na(.), 0) %>%
+    mutate_if(is.numeric, function(x) ifelse(is.infinite(x), 0, x))
+  
+} else {
+  # OR read locally
+  demoNetYears <- readRDS("../data/local/demoNet.rds")
+  rentNetYears <- readRDS("../data/local/rentNet.rds")
+}
 
 # SAVE locally
 saveRDS(demoNetYears, file = "../data/local/demoNet.rds")
